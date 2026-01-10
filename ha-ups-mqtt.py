@@ -19,32 +19,44 @@ def read_ups(ups_name):
         return {}
     data = {}
     for line in result.stdout.splitlines():
-        if ':' in line:
+        if ":" in line:
             key, val = line.split(":", 1)
             data[key.strip()] = val.strip()
     return data
 
 def build_discovery_topic(entity_id):
-    """Return the HA discovery topic for a sensor."""
     return f"homeassistant/sensor/{entity_id}/config"
 
 def build_state_topic(base_topic, entity_id):
-    """Standard state topic with /state at the end (used by normal sensors)."""
     return f"{base_topic}/{entity_id}/state"
+
+def make_entity_id(device_name, key):
+    base = device_name.lower().replace(" ", "_")
+    key_clean = key.lower().replace(".", "_")
+
+    if key_clean.startswith(base + "_"):
+        key_clean = key_clean[len(base) + 1 :]
+
+    return f"{base}_{key_clean}"
 
 def build_payload(sensor, ups_data, device_info):
     key = sensor["key"]
-    value = ups_data.get(key) if ups_data else None
+    value = ups_data.get(key)
     if value is None:
         return None
 
-    entity_id = f"{device_info['name'].lower().replace(' ', '_')}_{key.replace('.', '_')}"
+    entity_id = make_entity_id(device_info["name"], key)
+
+    friendly_name = sensor["friendly_name"]
+    device_name_prefix = device_info["name"]
+    if friendly_name.startswith(device_name_prefix):
+        friendly_name = friendly_name[len(device_name_prefix) :].strip()
 
     payload = {
-        "name": f"{device_info['name']} {sensor['friendly_name']}",
+        "name": f"{device_info['name']} {friendly_name}".strip(),
         "state_topic": build_state_topic(config["mqtt"]["base_topic"], entity_id),
         "unique_id": entity_id,
-        "device": device_info
+        "device": device_info,
     }
 
     if "unit" in sensor:
@@ -63,18 +75,20 @@ def main():
     mqtt_conf = config["mqtt"]
     ups_conf = config["ups"]
 
+    ups_data = read_ups(ups_conf["name"])
+
     device_info = {
         "identifiers": [ups_conf["name"]],
         "name": ups_conf["friendly_name"],
-        "model": "model",
-        "manufacturer": "manufacturer",
-        "sw_version": ups_conf.get("sw_version", "nut-upsc-bridge-1")
+        "model": ups_data.get("ups.model", "unknown"),
+        "manufacturer": ups_data.get("ups.mfr", "unknown"),
+        "sw_version": ups_conf.get("sw_version", "nut-upsc-bridge-1"),
     }
 
     client = mqtt.Client(
         client_id=mqtt_conf.get("client_id", ""),
         protocol=mqtt.MQTTv311,
-        callback_api_version=mqtt.CallbackAPIVersion.VERSION2
+        callback_api_version=mqtt.CallbackAPIVersion.VERSION2,
     )
 
     if mqtt_conf.get("username") and mqtt_conf.get("password"):
@@ -85,50 +99,58 @@ def main():
 
     last_values = {}
 
-    # --- Publish discovery payload for all UPS sensors (once) ---
-    for sensor in config["sensors"]:
-        payload_info = build_payload(sensor, {}, device_info)
-        if payload_info:
-            payload, _ = payload_info
-            entity_id = payload["unique_id"]
-            discovery_topic = build_discovery_topic(entity_id)
-            client.publish(discovery_topic, json.dumps(payload), retain=True)
-
-    # --- Publish heartbeat discovery once ---
-    heartbeat_entity_id = f"{device_info['name'].lower().replace(' ', '_')}_heartbeat"
+    # ---- Heartbeat setup (static) ----
+    heartbeat_entity_id = "den_ups_heartbeat"
     heartbeat_discovery_topic = build_discovery_topic(heartbeat_entity_id)
-    heartbeat_state_topic = f"{mqtt_conf['base_topic']}/{heartbeat_entity_id}"  # No /state at the end
-    heartbeat_payload_discovery = {
+    heartbeat_state_topic = build_state_topic(
+        mqtt_conf["base_topic"], heartbeat_entity_id
+    )
+
+    heartbeat_discovery_payload = {
         "name": f"{device_info['name']} Heartbeat",
         "state_topic": heartbeat_state_topic,
         "unique_id": heartbeat_entity_id,
         "device": device_info,
-        "unit_of_measurement": "s",
         "icon": "mdi:heart-pulse",
-        "device_class": "timestamp"
     }
-    client.publish(heartbeat_discovery_topic, json.dumps(heartbeat_payload_discovery), retain=True)
 
-    # --- Main loop: publish state values only ---
+    # Publish heartbeat discovery once (retained)
+    client.publish(
+        heartbeat_discovery_topic,
+        json.dumps(heartbeat_discovery_payload),
+        retain=True,
+    )
+
     while True:
         ups_data = read_ups(ups_conf["name"])
 
+        # Publish UPS sensors
         for sensor in config["sensors"]:
             payload_info = build_payload(sensor, ups_data, device_info)
             if not payload_info:
                 continue
-            _, value = payload_info
-            entity_id = f"{device_info['name'].lower().replace(' ', '_')}_{sensor['key'].replace('.', '_')}"
-            state_topic = build_state_topic(mqtt_conf["base_topic"], entity_id)
 
-            # Only publish if value changed
+            payload, value = payload_info
+            entity_id = payload["unique_id"]
+
+            discovery_topic = build_discovery_topic(entity_id)
+            state_topic = build_state_topic(
+                mqtt_conf["base_topic"], entity_id
+            )
+
+            client.publish(discovery_topic, json.dumps(payload), retain=True)
+
             if last_values.get(entity_id) != value:
                 client.publish(state_topic, value, retain=True)
                 last_values[entity_id] = value
 
-        # --- Publish heartbeat value every loop ---
-        heartbeat_payload_state = str(int(time.time()))
-        client.publish(heartbeat_state_topic, heartbeat_payload_state, retain=True)
+        # Publish heartbeat every loop (epoch seconds)
+        heartbeat_value = str(int(time.time()))
+        client.publish(
+            heartbeat_state_topic,
+            heartbeat_value,
+            retain=True,
+        )
 
         time.sleep(ups_conf.get("poll_interval", 30))
 
