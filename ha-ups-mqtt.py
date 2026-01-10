@@ -33,15 +33,14 @@ def build_state_topic(base_topic, entity_id):
 
 def build_payload(sensor, ups_data, device_info):
     key = sensor["key"]
-    value = ups_data.get(key)
+    value = ups_data.get(key) if ups_data else None
     if value is None:
         return None
 
-    # Clean entity ID: lowercase, underscores, no duplicate device name
     entity_id = f"{device_info['name'].lower().replace(' ', '_')}_{key.replace('.', '_')}"
 
     payload = {
-        "name": f"{device_info['name']} {sensor['friendly_name']}",  # friendly display name
+        "name": f"{device_info['name']} {sensor['friendly_name']}",
         "state_topic": build_state_topic(config["mqtt"]["base_topic"], entity_id),
         "unique_id": entity_id,
         "device": device_info
@@ -66,8 +65,8 @@ def main():
     device_info = {
         "identifiers": [ups_conf["name"]],
         "name": ups_conf["friendly_name"],
-        "model": "model",               # hardcoded model
-        "manufacturer": "manufacturer", # hardcoded manufacturer
+        "model": "model",
+        "manufacturer": "manufacturer",
         "sw_version": ups_conf.get("sw_version", "nut-upsc-bridge-1")
     }
 
@@ -85,6 +84,31 @@ def main():
 
     last_values = {}
 
+    # --- Publish discovery for UPS sensors once ---
+    for sensor in config["sensors"]:
+        payload_info = build_payload(sensor, {}, device_info)
+        if payload_info:
+            payload, _ = payload_info
+            entity_id = payload["unique_id"]
+            discovery_topic = build_discovery_topic(entity_id)
+            client.publish(discovery_topic, json.dumps(payload), retain=True)
+
+    # --- Publish heartbeat discovery once ---
+    heartbeat_entity_id = f"{device_info['name'].lower().replace(' ', '_')}_heartbeat"
+    heartbeat_discovery_topic = build_discovery_topic(heartbeat_entity_id)
+    heartbeat_state_topic = build_state_topic(mqtt_conf["base_topic"], heartbeat_entity_id)
+    heartbeat_payload_discovery = {
+        "name": f"{device_info['name']} Heartbeat",
+        "state_topic": heartbeat_state_topic,
+        "unique_id": heartbeat_entity_id,
+        "device": device_info,
+        "unit_of_measurement": "s",
+        "icon": "mdi:heart-pulse",
+        "device_class": "timestamp"
+    }
+    client.publish(heartbeat_discovery_topic, json.dumps(heartbeat_payload_discovery), retain=True)
+
+    # --- Main loop: publish state values only ---
     while True:
         ups_data = read_ups(ups_conf["name"])
 
@@ -92,39 +116,16 @@ def main():
             payload_info = build_payload(sensor, ups_data, device_info)
             if not payload_info:
                 continue
-            payload, value = payload_info
-
-            entity_id = payload["unique_id"]
-            discovery_topic = build_discovery_topic(entity_id)
+            _, value = payload_info
+            entity_id = f"{device_info['name'].lower().replace(' ', '_')}_{sensor['key'].replace('.', '_')}"
             state_topic = build_state_topic(mqtt_conf["base_topic"], entity_id)
 
-            # Publish discovery payload as JSON
-            client.publish(discovery_topic, json.dumps(payload), retain=True)
-
-            # Only publish if changed
+            # Only publish if value changed
             if last_values.get(entity_id) != value:
                 client.publish(state_topic, value, retain=True)
                 last_values[entity_id] = value
 
-        # --- Heartbeat sensor ---
-        heartbeat_entity_id = f"{device_info['name'].lower().replace(' ', '_')}_heartbeat"
-        heartbeat_discovery_topic = build_discovery_topic(heartbeat_entity_id)
-        heartbeat_state_topic = build_state_topic(mqtt_conf["base_topic"], heartbeat_entity_id)
-
-        heartbeat_payload_discovery = {
-            "name": f"{device_info['name']} Heartbeat",
-            "state_topic": heartbeat_state_topic,
-            "unique_id": heartbeat_entity_id,
-            "device": device_info,
-            "unit_of_measurement": "s",
-            "icon": "mdi:heart-pulse",
-            "device_class": "timestamp"
-        }
-
-        # Publish heartbeat discovery payload
-        client.publish(heartbeat_discovery_topic, json.dumps(heartbeat_payload_discovery), retain=True)
-
-        # Publish heartbeat value (epoch time)
+        # --- Publish heartbeat state every loop ---
         heartbeat_payload_state = str(int(time.time()))
         client.publish(heartbeat_state_topic, heartbeat_payload_state, retain=True)
 
