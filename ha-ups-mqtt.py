@@ -106,6 +106,28 @@ def main():
                 client.publish(state_topic, value, retain=True)
                 last_values[entity_id] = value
 
+        # --- Heartbeat sensor ---
+        heartbeat_entity_id = f"{device_info['name'].lower().replace(' ', '_')}_heartbeat"
+        heartbeat_discovery_topic = build_discovery_topic(heartbeat_entity_id)
+        heartbeat_state_topic = build_state_topic(mqtt_conf["base_topic"], heartbeat_entity_id)
+
+        heartbeat_payload_discovery = {
+            "name": f"{device_info['name']} Heartbeat",
+            "state_topic": heartbeat_state_topic,
+            "unique_id": heartbeat_entity_id,
+            "device": device_info,
+            "unit_of_measurement": "s",
+            "icon": "mdi:heart-pulse",
+            "device_class": "timestamp"
+        }
+
+        # Publish heartbeat discovery payload
+        client.publish(heartbeat_discovery_topic, json.dumps(heartbeat_payload_discovery), retain=True)
+
+        # Publish heartbeat value (epoch time)
+        heartbeat_payload_state = str(int(time.time()))
+        client.publish(heartbeat_state_topic, heartbeat_payload_state, retain=True)
+
         time.sleep(ups_conf.get("poll_interval", 30))
 
 if __name__ == "__main__":
