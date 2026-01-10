@@ -29,6 +29,7 @@ def build_discovery_topic(entity_id):
     return f"homeassistant/sensor/{entity_id}/config"
 
 def build_state_topic(base_topic, entity_id):
+    """Standard state topic with /state at the end (used by normal sensors)."""
     return f"{base_topic}/{entity_id}/state"
 
 def build_payload(sensor, ups_data, device_info):
@@ -84,7 +85,7 @@ def main():
 
     last_values = {}
 
-    # --- Publish discovery for UPS sensors once ---
+    # --- Publish discovery payload for all UPS sensors (once) ---
     for sensor in config["sensors"]:
         payload_info = build_payload(sensor, {}, device_info)
         if payload_info:
@@ -96,7 +97,7 @@ def main():
     # --- Publish heartbeat discovery once ---
     heartbeat_entity_id = f"{device_info['name'].lower().replace(' ', '_')}_heartbeat"
     heartbeat_discovery_topic = build_discovery_topic(heartbeat_entity_id)
-    heartbeat_state_topic = build_state_topic(mqtt_conf["base_topic"], heartbeat_entity_id)
+    heartbeat_state_topic = f"{mqtt_conf['base_topic']}/{heartbeat_entity_id}"  # No /state at the end
     heartbeat_payload_discovery = {
         "name": f"{device_info['name']} Heartbeat",
         "state_topic": heartbeat_state_topic,
@@ -125,7 +126,7 @@ def main():
                 client.publish(state_topic, value, retain=True)
                 last_values[entity_id] = value
 
-        # --- Publish heartbeat state every loop ---
+        # --- Publish heartbeat value every loop ---
         heartbeat_payload_state = str(int(time.time()))
         client.publish(heartbeat_state_topic, heartbeat_payload_state, retain=True)
 
