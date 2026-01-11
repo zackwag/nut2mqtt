@@ -23,8 +23,9 @@ sensors:
   - key: "battery.charge.low"
     unit: "%"
     type: "sensor"
-    icon: "mdi:battery-10"
+    icon: "mdi:gauge"
     friendly_name: "Battery Low Setpoint"
+    entity_category: "diagnostic"
 
   - key: "battery.charge.warning"
     unit: "%"
@@ -32,6 +33,7 @@ sensors:
     icon: "mdi:battery-10"
     friendly_name: "Battery Warning Setpoint"
     device_class: "battery"
+    entity_category: "diagnostic"
 
   - key: "battery.runtime"
     unit: "s"
@@ -39,6 +41,7 @@ sensors:
     icon: "mdi:timer-sand"
     friendly_name: "Battery Runtime"
     device_class: "duration"
+    entity_category: "diagnostic"
 
   - key: "battery.runtime.low"
     unit: "s"
@@ -46,6 +49,7 @@ sensors:
     icon: "mdi:timer-sand-empty"
     friendly_name: "Low Battery Runtime"
     device_class: "duration"
+    entity_category: "diagnostic"
 
   - key: "battery.voltage"
     unit: "V"
@@ -53,6 +57,7 @@ sensors:
     icon: "mdi:flash"
     friendly_name: "Battery Voltage"
     device_class: "voltage"
+    entity_category: "diagnostic"
 
   - key: "battery.voltage.nominal"
     unit: "V"
@@ -60,11 +65,13 @@ sensors:
     icon: "mdi:flash-outline"
     friendly_name: "Nominal Battery Voltage"
     device_class: "voltage"
+    entity_category: "diagnostic"
 
   - key: "battery.type"
     type: "sensor"
     icon: "mdi:information"
     friendly_name: "Battery Chemistry"
+    entity_category: "diagnostic"
 
   - key: "input.transfer.high"
     unit: "V"
@@ -72,6 +79,7 @@ sensors:
     icon: "mdi:flash-alert"
     friendly_name: "High Voltage Transfer"
     device_class: "voltage"
+    entity_category: "diagnostic"
 
   - key: "input.transfer.low"
     unit: "V"
@@ -79,6 +87,7 @@ sensors:
     icon: "mdi:flash"
     friendly_name: "Low Voltage Transfer"
     device_class: "voltage"
+    entity_category: "diagnostic"
 
   - key: "input.voltage"
     unit: "V"
@@ -93,6 +102,7 @@ sensors:
     icon: "mdi:flash-outline"
     friendly_name: "Nominal Input Voltage"
     device_class: "voltage"
+    entity_category: "diagnostic"
 
   - key: "output.voltage"
     unit: "V"
@@ -113,11 +123,13 @@ sensors:
     icon: "mdi:flash"
     friendly_name: "Nominal Real Power"
     device_class: "power"
+    entity_category: "diagnostic"
 
   - key: "ups.beeper.status"
     type: "sensor"
     icon: "mdi:volume-high"
     friendly_name: "Beeper Status"
+    entity_category: "diagnostic"
 
   - key: "ups.status"
     type: "sensor"
@@ -130,6 +142,7 @@ sensors:
     icon: "mdi:timer-sand"
     friendly_name: "Load Shutdown Delay"
     device_class: "duration"
+    entity_category: "diagnostic"
 
   - key: "ups.delay.start"
     unit: "s"
@@ -137,6 +150,7 @@ sensors:
     icon: "mdi:timer-sand"
     friendly_name: "Load Restart Delay"
     device_class: "duration"
+    entity_category: "diagnostic"
 
   - key: "ups.timer.shutdown"
     unit: "s"
@@ -144,6 +158,7 @@ sensors:
     icon: "mdi:timer-stop-outline"
     friendly_name: "Load Shutdown Timer"
     device_class: "duration"
+    entity_category: "diagnostic"
 
   - key: "ups.timer.start"
     unit: "s"
@@ -151,3 +166,4 @@ sensors:
     icon: "mdi:timer-play-outline"
     friendly_name: "Load Start Timer"
     device_class: "duration"
+    entity_category: "diagnostic"

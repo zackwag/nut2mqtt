@@ -66,6 +66,9 @@ def build_payload(sensor, ups_data, device_info):
     if "device_class" in sensor:
         payload["device_class"] = sensor["device_class"]
 
+    if "entity_category" in sensor:
+        payload["entity_category"] = sensor["entity_category"]
+
     return payload, value
 
 def main():
@@ -112,6 +115,7 @@ def main():
         "unique_id": heartbeat_entity_id,
         "device": device_info,
         "icon": "mdi:heart-pulse",
+        "entity_category": "diagnostic"
     }
 
     # Publish heartbeat discovery once (retained)
@@ -131,6 +135,11 @@ def main():
                 continue
 
             payload, value = payload_info
+
+            # Normalize presentation-only values
+            if sensor["key"] == "ups.beeper.status" and isinstance(value, str):
+                value = value.title()
+
             entity_id = payload["unique_id"]
 
             discovery_topic = build_discovery_topic(entity_id)
