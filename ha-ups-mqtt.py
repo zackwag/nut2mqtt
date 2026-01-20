@@ -8,7 +8,7 @@ import sys
 import paho.mqtt.client as mqtt
 import yaml
 
-CONFIG_FILE = "config.yaml
+CONFIG_FILE = "config.yaml"
 
 def load_config():
     with open(CONFIG_FILE, "r") as f:
