@@ -165,7 +165,7 @@ def main():
 
     sw_version = first_value(ups_data, "driver.version")
     driver_data = ups_data.get("driver.version.data")
-    if driver_data and sw_version != "unknown":
+    if driver_data and sw_version not in (None, "unknown"):
         sw_version = f"{sw_version} ({driver_data})"
 
     device_info = {
