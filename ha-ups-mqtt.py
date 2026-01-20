@@ -32,7 +32,7 @@ def read_ups(ups_name):
 def first_value(data, *keys, default="unknown"):
     for key in keys:
         value = data.get(key)
-        if value:
+        if value is not None:
             return value
     return default
 
