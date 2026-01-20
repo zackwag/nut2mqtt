@@ -10,9 +10,11 @@ import yaml
 
 CONFIG_FILE = "config.yaml"
 
+
 def load_config():
     with open(CONFIG_FILE, "r") as f:
         return yaml.safe_load(f)
+
 
 def read_ups(ups_name):
     """Call upsc and return a dict of key/value pairs."""
@@ -26,6 +28,7 @@ def read_ups(ups_name):
             data[key.strip()] = val.strip()
     return data
 
+
 def first_value(data, *keys, default="unknown"):
     for key in keys:
         value = data.get(key)
@@ -33,11 +36,14 @@ def first_value(data, *keys, default="unknown"):
             return value
     return default
 
+
 def build_discovery_topic(entity_id, platform="sensor"):
     return f"homeassistant/{platform}/{entity_id}/config"
 
+
 def build_state_topic(base_topic, entity_id):
     return f"{base_topic}/{entity_id}/state"
+
 
 def make_entity_id(device_name, key):
     base = device_name.lower().replace(" ", "_")
@@ -45,6 +51,7 @@ def make_entity_id(device_name, key):
     if key_clean.startswith(base + "_"):
         key_clean = key_clean[len(base) + 1 :]
     return f"{base}_{key_clean}"
+
 
 def build_payload(sensor, ups_data, device_info, availability_topic):
     key = sensor["key"]
@@ -78,6 +85,7 @@ def build_payload(sensor, ups_data, device_info, availability_topic):
 
     return payload, value
 
+
 def main():
     global config
     config = load_config()
@@ -90,8 +98,12 @@ def main():
     ups_slug = ups_name_raw.lower().replace(" ", "_")
 
     # ---- Availability topics ----
-    sensor_availability_topic = f"{mqtt_conf['base_topic']}/{ups_slug}_sensors/availability"  # online/offline
-    binary_availability_topic = f"{mqtt_conf['base_topic']}/{ups_slug}_connected/availability"  # true/false
+    sensor_availability_topic = (
+        f"{mqtt_conf['base_topic']}/{ups_slug}_sensors/availability"  # online/offline
+    )
+    binary_availability_topic = (
+        f"{mqtt_conf['base_topic']}/{ups_slug}_connected/availability"  # true/false
+    )
 
     # ---- MQTT client ----
     client = mqtt.Client(
@@ -150,7 +162,9 @@ def main():
 
     # ---- UPS Connected binary sensor discovery ----
     binary_sensor_entity_id = f"{ups_conf['name']}_connected"
-    binary_discovery_topic = build_discovery_topic(binary_sensor_entity_id, platform="binary_sensor")
+    binary_discovery_topic = build_discovery_topic(
+        binary_sensor_entity_id, platform="binary_sensor"
+    )
     binary_discovery_payload = {
         "name": "UPS Connected",
         "state_topic": binary_availability_topic,
@@ -160,7 +174,9 @@ def main():
         "unique_id": binary_sensor_entity_id,
         "device": device_info,
     }
-    client.publish(binary_discovery_topic, json.dumps(binary_discovery_payload), retain=True)
+    client.publish(
+        binary_discovery_topic, json.dumps(binary_discovery_payload), retain=True
+    )
 
     # ---- Main loop ----
     while True:
@@ -177,7 +193,9 @@ def main():
 
             # Publish UPS sensors
             for sensor in config["sensors"]:
-                payload_info = build_payload(sensor, ups_data, device_info, sensor_availability_topic)
+                payload_info = build_payload(
+                    sensor, ups_data, device_info, sensor_availability_topic
+                )
                 if not payload_info:
                     continue
 
@@ -197,6 +215,7 @@ def main():
                     last_values[entity_id] = value
 
         time.sleep(ups_conf.get("poll_interval", 30))
+
 
 if __name__ == "__main__":
     main()
