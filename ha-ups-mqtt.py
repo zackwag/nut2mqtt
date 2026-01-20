@@ -115,8 +115,8 @@ def main():
 
     # ---- Availability topics ----
     # Used by HA to mark sensors online/offline
-    sensor_availability_topic = f"{mqtt_conf['base_topic']}/{ups_slug}_sensors/availability"  # online/offline
-    binary_availability_topic = f"{mqtt_conf['base_topic']}/{ups_slug}_connected/availability"  # true/false
+    sensor_availability_topic = f"{mqtt_conf['base_topic']}/{ups_slug}_sensors/availability"
+    binary_availability_topic = f"{mqtt_conf['base_topic']}/{ups_slug}_connected/availability"
 
     # ---- MQTT client setup ----
     client = mqtt.Client(
@@ -170,7 +170,7 @@ def main():
             break  # Successful read
         attempt += 1
         print(f"UPS not reachable, retrying {attempt}/{max_attempts}...")
-        time.sleep(2)  # small delay before retry
+        time.sleep(2)  # Small delay before retry
     
     if not ups_data:
         print("Warning: UPS unreachable at startup, device info will be partially unknown.")
