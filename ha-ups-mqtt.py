@@ -8,13 +8,11 @@ import sys
 import paho.mqtt.client as mqtt
 import yaml
 
-CONFIG_FILE = "config.yaml"
-
+CONFIG_FILE = "config.yaml
 
 def load_config():
     with open(CONFIG_FILE, "r") as f:
         return yaml.safe_load(f)
-
 
 def read_ups(ups_name):
     """Call upsc and return a dict of key/value pairs."""
@@ -28,7 +26,6 @@ def read_ups(ups_name):
             data[key.strip()] = val.strip()
     return data
 
-
 def first_value(data, *keys, default="unknown"):
     for key in keys:
         value = data.get(key)
@@ -36,14 +33,11 @@ def first_value(data, *keys, default="unknown"):
             return value
     return default
 
-
 def build_discovery_topic(entity_id, platform="sensor"):
     return f"homeassistant/{platform}/{entity_id}/config"
 
-
 def build_state_topic(base_topic, entity_id):
     return f"{base_topic}/{entity_id}/state"
-
 
 def make_entity_id(device_name, key):
     base = device_name.lower().replace(" ", "_")
@@ -51,7 +45,6 @@ def make_entity_id(device_name, key):
     if key_clean.startswith(base + "_"):
         key_clean = key_clean[len(base) + 1 :]
     return f"{base}_{key_clean}"
-
 
 def build_payload(sensor, ups_data, device_info, availability_topic):
     key = sensor["key"]
@@ -84,7 +77,6 @@ def build_payload(sensor, ups_data, device_info, availability_topic):
         payload["entity_category"] = sensor["entity_category"]
 
     return payload, value
-
 
 def main():
     global config
@@ -208,7 +200,6 @@ def main():
                     last_values[entity_id] = value
 
         time.sleep(ups_conf.get("poll_interval", 30))
-
 
 if __name__ == "__main__":
     main()
