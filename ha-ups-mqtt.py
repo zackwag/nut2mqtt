@@ -145,7 +145,7 @@ def main():
     }
 
     # ---- UPS Connected binary sensor discovery ----
-    binary_sensor_entity_id = "den_ups_connected"
+    binary_sensor_entity_id = f"{ups_conf['name']}_connected"
     binary_discovery_topic = build_discovery_topic(binary_sensor_entity_id, platform="binary_sensor")
     binary_discovery_payload = {
         "name": "UPS Connected",
