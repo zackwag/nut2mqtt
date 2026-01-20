@@ -161,7 +161,13 @@ def main():
     last_values = {}
 
     # ---- Initial UPS read for device info with retry ----
-    max_attempts = int(ups_conf.get("startup_max_attempts", 5))
+    raw_max_attempts = ups_conf.get("startup_max_attempts", 5)
+    try:
+        max_attempts = int(raw_max_attempts)
+    except (TypeError, ValueError) as exc:
+        raise ValueError(
+            f"Invalid configuration for 'startup_max_attempts': expected an integer, got {raw_max_attempts!r}"
+        ) from exc
     attempt = 0
     ups_data = {}
     while attempt < max_attempts:
