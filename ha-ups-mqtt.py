@@ -132,12 +132,6 @@ def main():
         qos=1,
         retain=True,
     )
-    client.will_set(
-        topic=binary_availability_topic,
-        payload="false",
-        qos=1,
-        retain=True,
-    )
 
     # Optional MQTT authentication
     if mqtt_conf.get("username") and mqtt_conf.get("password"):
