@@ -160,14 +160,26 @@ def main():
 
     last_values = {}
 
-    # ---- Initial UPS read for device info ----
-    ups_data = read_ups(ups_conf["name"])
-
+    # ---- Initial UPS read for device info with retry ----
+    max_attempts = 5
+    attempt = 0
+    ups_data = {}
+    while attempt < max_attempts:
+        ups_data = read_ups(ups_conf["name"])
+        if ups_data:
+            break  # Successful read
+        attempt += 1
+        print(f"UPS not reachable, retrying {attempt}/{max_attempts}...")
+        time.sleep(2)  # small delay before retry
+    
+    if not ups_data:
+        print("Warning: UPS unreachable at startup, device info will be partially unknown.")
+    
     sw_version = first_value(ups_data, "driver.version")
     driver_data = ups_data.get("driver.version.data")
-    if driver_data and sw_version not in (None, "unknown"):
+    if driver_data and sw_version != "unknown":
         sw_version = f"{sw_version} ({driver_data})"
-
+    
     device_info = {
         "identifiers": [ups_conf["name"]],
         "name": ups_conf["friendly_name"],
