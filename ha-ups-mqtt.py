@@ -85,9 +85,13 @@ def main():
     mqtt_conf = config["mqtt"]
     ups_conf = config["ups"]
 
+    # Derive a slug from the UPS name or friendly name for topic prefixes
+    ups_name_raw = ups_conf.get("name") or ups_conf.get("friendly_name", "ups")
+    ups_slug = ups_name_raw.lower().replace(" ", "_")
+
     # ---- Availability topics ----
-    sensor_availability_topic = f"{mqtt_conf['base_topic']}/den_ups_sensors/availability"  # online/offline
-    binary_availability_topic = f"{mqtt_conf['base_topic']}/den_ups_connected/availability"  # true/false
+    sensor_availability_topic = f"{mqtt_conf['base_topic']}/{ups_slug}_sensors/availability"  # online/offline
+    binary_availability_topic = f"{mqtt_conf['base_topic']}/{ups_slug}_connected/availability"  # true/false
 
     # ---- MQTT client ----
     client = mqtt.Client(
