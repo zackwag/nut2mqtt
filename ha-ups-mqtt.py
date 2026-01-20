@@ -103,13 +103,6 @@ def main():
         qos=1,
         retain=True,
     )
-    # LWT for binary sensor (true/false)
-    client.will_set(
-        topic=binary_availability_topic,
-        payload="false",
-        qos=1,
-        retain=True,
-    )
 
     if mqtt_conf.get("username") and mqtt_conf.get("password"):
         client.username_pw_set(mqtt_conf["username"], mqtt_conf["password"])
