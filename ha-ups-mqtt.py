@@ -12,15 +12,16 @@ CONFIG_FILE = "config.yaml"
 
 
 def load_config():
+    """Load configuration from YAML file."""
     with open(CONFIG_FILE, "r") as f:
         return yaml.safe_load(f)
 
 
 def read_ups(ups_name):
-    """Call upsc and return a dict of key/value pairs."""
+    """Call `upsc` CLI to get UPS status and return as dict of key/value pairs."""
     result = subprocess.run(["upsc", ups_name], capture_output=True, text=True)
     if result.returncode != 0:
-        return {}
+        return {}  # UPS not reachable or command failed
     data = {}
     for line in result.stdout.splitlines():
         if ":" in line:
@@ -30,6 +31,10 @@ def read_ups(ups_name):
 
 
 def first_value(data, *keys, default="unknown"):
+    """
+    Return the first key found in `data` that has a value.
+    Useful for falling back on multiple possible UPS fields.
+    """
     for key in keys:
         value = data.get(key)
         if value is not None:
@@ -38,14 +43,20 @@ def first_value(data, *keys, default="unknown"):
 
 
 def build_discovery_topic(entity_id, platform="sensor"):
+    """Construct Home Assistant MQTT discovery topic for a sensor or binary_sensor."""
     return f"homeassistant/{platform}/{entity_id}/config"
 
 
 def build_state_topic(base_topic, entity_id):
+    """Construct MQTT state topic for publishing sensor values."""
     return f"{base_topic}/{entity_id}/state"
 
 
 def make_entity_id(device_name, key):
+    """
+    Generate a Home Assistant entity_id by combining the device name and sensor key.
+    Converts to lowercase and replaces dots/spaces with underscores.
+    """
     base = device_name.lower().replace(" ", "_")
     key_clean = key.lower().replace(".", "_")
     if key_clean.startswith(base + "_"):
@@ -54,10 +65,15 @@ def make_entity_id(device_name, key):
 
 
 def build_payload(sensor, ups_data, device_info, availability_topic):
+    """
+    Build MQTT discovery payload for a sensor.
+    Adds unit, icon, device_class, entity_category if present.
+    Includes availability_topic for HA to mark `unavailable` if UPS goes offline.
+    """
     key = sensor["key"]
     value = ups_data.get(key)
     if value is None:
-        return None
+        return None  # Skip sensors with no data
 
     entity_id = make_entity_id(device_info["name"], key)
 
@@ -71,7 +87,7 @@ def build_payload(sensor, ups_data, device_info, availability_topic):
         "state_topic": build_state_topic(config["mqtt"]["base_topic"], entity_id),
         "unique_id": entity_id,
         "device": device_info,
-        "availability_topic": availability_topic,
+        "availability_topic": availability_topic,  # Mark unavailable if UPS offline
     }
 
     if "unit" in sensor:
@@ -93,45 +109,51 @@ def main():
     mqtt_conf = config["mqtt"]
     ups_conf = config["ups"]
 
-    # Derive a slug from the UPS name or friendly name for topic prefixes
+    # ---- Create a slug from the UPS name/friendly_name for topic prefixes ----
     ups_name_raw = ups_conf.get("name") or ups_conf.get("friendly_name", "ups")
     ups_slug = ups_name_raw.lower().replace(" ", "_")
 
     # ---- Availability topics ----
-    sensor_availability_topic = (
-        f"{mqtt_conf['base_topic']}/{ups_slug}_sensors/availability"  # online/offline
-    )
-    binary_availability_topic = (
-        f"{mqtt_conf['base_topic']}/{ups_slug}_connected/availability"  # true/false
-    )
+    # Used by HA to mark sensors online/offline
+    sensor_availability_topic = f"{mqtt_conf['base_topic']}/{ups_slug}_sensors/availability"  # online/offline
+    binary_availability_topic = f"{mqtt_conf['base_topic']}/{ups_slug}_connected/availability"  # true/false
 
-    # ---- MQTT client ----
+    # ---- MQTT client setup ----
     client = mqtt.Client(
         client_id=mqtt_conf.get("client_id", ""),
         protocol=mqtt.MQTTv311,
         callback_api_version=mqtt.CallbackAPIVersion.VERSION2,
     )
 
-    # LWT for sensors (online/offline)
+    # LWT (Last Will & Testament) ensures HA marks sensors offline if script crashes
     client.will_set(
         topic=sensor_availability_topic,
         payload="offline",
         qos=1,
         retain=True,
     )
+    client.will_set(
+        topic=binary_availability_topic,
+        payload="false",
+        qos=1,
+        retain=True,
+    )
 
+    # Optional MQTT authentication
     if mqtt_conf.get("username") and mqtt_conf.get("password"):
         client.username_pw_set(mqtt_conf["username"], mqtt_conf["password"])
 
+    # Connect to broker and start loop
     client.connect(mqtt_conf["broker"], mqtt_conf["port"], 60)
     client.loop_start()
 
-    # Publish initial states
+    # Publish initial online states
     client.publish(sensor_availability_topic, "online", retain=True)
     client.publish(binary_availability_topic, "true", retain=True)
 
     # ---- Graceful shutdown ----
     def handle_exit(signum, frame):
+        """Publish offline states and disconnect cleanly on SIGINT/SIGTERM."""
         print("Stopping UPS MQTT bridge...")
         client.publish(sensor_availability_topic, "offline", retain=True)
         client.publish(binary_availability_topic, "false", retain=True)
@@ -161,7 +183,8 @@ def main():
     }
 
     # ---- UPS Connected binary sensor discovery ----
-    binary_sensor_entity_id = f"{ups_conf['name']}_connected"
+    # This sensor replaces the old heartbeat and shows UPS reachability
+    binary_sensor_entity_id = f"{ups_slug}_connected"  # Use slug for consistency
     binary_discovery_topic = build_discovery_topic(
         binary_sensor_entity_id, platform="binary_sensor"
     )
@@ -178,20 +201,20 @@ def main():
         binary_discovery_topic, json.dumps(binary_discovery_payload), retain=True
     )
 
-    # ---- Main loop ----
+    # ---- Main polling loop ----
     while True:
         ups_data = read_ups(ups_conf["name"])
 
         if not ups_data:
-            # UPS not reachable
+            # UPS not reachable → mark sensors offline and UPS Connected false
             client.publish(sensor_availability_topic, "offline", retain=True)
             client.publish(binary_availability_topic, "false", retain=True)
         else:
-            # UPS reachable
+            # UPS reachable → mark sensors online and UPS Connected true
             client.publish(sensor_availability_topic, "online", retain=True)
             client.publish(binary_availability_topic, "true", retain=True)
 
-            # Publish UPS sensors
+            # Publish individual UPS sensors
             for sensor in config["sensors"]:
                 payload_info = build_payload(
                     sensor, ups_data, device_info, sensor_availability_topic
@@ -201,6 +224,7 @@ def main():
 
                 payload, value = payload_info
 
+                # Title-case the beeper status for nicer display
                 if sensor["key"] == "ups.beeper.status" and isinstance(value, str):
                     value = value.title()
 
@@ -208,8 +232,10 @@ def main():
                 discovery_topic = build_discovery_topic(entity_id)
                 state_topic = build_state_topic(config["mqtt"]["base_topic"], entity_id)
 
+                # Publish sensor discovery (retained)
                 client.publish(discovery_topic, json.dumps(payload), retain=True)
 
+                # Publish sensor state if changed
                 if last_values.get(entity_id) != value:
                     client.publish(state_topic, value, retain=True)
                     last_values[entity_id] = value
