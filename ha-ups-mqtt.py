@@ -161,7 +161,7 @@ def main():
     last_values = {}
 
     # ---- Initial UPS read for device info with retry ----
-    max_attempts = 5
+    max_attempts = int(ups_conf.get("startup_max_attempts", 5))
     attempt = 0
     ups_data = {}
     while attempt < max_attempts:
@@ -195,7 +195,7 @@ def main():
         binary_sensor_entity_id, platform="binary_sensor"
     )
     binary_discovery_payload = {
-        "name": "UPS Connected",
+        "name": f"{ups_conf['friendly_name']} Connected",
         "state_topic": binary_availability_topic,
         "payload_on": "true",
         "payload_off": "false",
