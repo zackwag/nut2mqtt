@@ -65,12 +65,9 @@ git clone https://github.com/zackwag/ha-ups-mqtt.git
 cd ha-ups-mqtt
 ```
 
-### 2. Create a virtual environment
+
 
 ```bash
-python3 -m venv venv
-source venv/bin/activate
-pip install -r requirements.txt
 ```
 
 ### 3. Configure
@@ -91,7 +88,7 @@ The configuration controls:
 ### 4. Test run
 
 ```bash
-./venv/bin/python3 ha-ups-mqtt.py
+python3 ha-ups-mqtt.py
 ```
 
 ---
@@ -136,38 +133,46 @@ Each sensor entry supports the following fields:
 
 ## Run as a System Service (Recommended)
 
-### 1. Copy files to install directory
+### 1. Create a dedicated system user
+
+```bash
+sudo useradd --system --no-create-home --group nogroup ups
+```
+
+### 2. Copy files to install directory
 
 ```bash
 sudo mkdir -p /opt/ha-ups-mqtt
 sudo cp -r . /opt/ha-ups-mqtt
+sudo chown -R ups:nogroup /opt/ha-ups-mqtt
 ```
 
-### 2. Copy the service file
+### 3. Install dependencies
+
+```bash
+sudo pip3 install -r /opt/ha-ups-mqtt/requirements.txt --break-system-packages
+```
+
+### 4. Copy the service file
 
 ```bash
 sudo cp systemd/ha-ups-mqtt.service /etc/systemd/system/
 ```
 
-### 3. Adjust paths if needed
-
-Make sure the `ExecStart` and `WorkingDirectory` in `ha-ups-mqtt.service` point to your
-installation directory (default: `/opt/ha-ups-mqtt`).
-
-### 4. Reload systemd and enable service
+### 5. Reload systemd and enable service
 
 ```bash
 sudo systemctl daemon-reload
 sudo systemctl enable --now ha-ups-mqtt
 ```
 
-### 5. Check status
+### 6. Check status
 
 ```bash
 systemctl status ha-ups-mqtt
 ```
 
-### 6. View logs
+### 7. View logs
 
 ```bash
 journalctl -u ha-ups-mqtt -f
@@ -177,7 +182,7 @@ journalctl -u ha-ups-mqtt -f
 
 ## Home Assistant
 
-With MQTT Discovery enabled, entities appear automatically under a **Channels DVR** device
+With MQTT Discovery enabled, entities appear automatically under a **UPS** device
 in Settings → Devices & Services → MQTT.
 
 ### Example Entity Names
