@@ -1,3 +1,6 @@
+# Active config (contains credentials)
+config.yaml
+
 # Python
 __pycache__/
 *.pyc
