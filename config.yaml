@@ -4,13 +4,14 @@ mqtt:
   username: "[CHANGEME]"
   password: "[CHANGEME]"
   base_topic: "home/ups"
-  client_id: "nut-upsc-bridge"
+  client_id: "ha-ups-mqtt"
 
 ups:
   name: "[CHANGEME]"
   friendly_name: "[CHANGEME]"
-  sw_version: "nut-upsc-bridge-1"
-  poll_interval: 30 # seconds
+  poll_interval: 30
+  startup_max_attempts: 5
+  startup_retry_delay: 2
 
 sensors:
   - key: "battery.charge"
