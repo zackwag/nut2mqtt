@@ -1,4 +1,4 @@
-# HA UPS MQTT Bridge
+# NUT to MQTT Bridge
 
 [![License](https://img.shields.io/badge/license-MIT-blue?style=flat-square)](LICENSE)
 [![Backend](https://img.shields.io/badge/backend-Python%203-3776AB?style=flat-square&logo=python)](https://www.python.org/)
@@ -61,13 +61,14 @@ This makes the system resilient to:
 ### 1. Clone the repo
 
 ```bash
-git clone https://github.com/zackwag/ha-ups-mqtt.git
-cd ha-ups-mqtt
+git clone https://github.com/zackwag/nut2mqtt.git
+cd nut2mqtt
 ```
 
-
+### 2. Install dependencies
 
 ```bash
+sudo pip3 install -r requirements.txt --break-system-packages
 ```
 
 ### 3. Configure
@@ -88,7 +89,7 @@ The configuration controls:
 ### 4. Test run
 
 ```bash
-python3 ha-ups-mqtt.py
+python3 nut2mqtt.py
 ```
 
 ---
@@ -103,8 +104,8 @@ python3 ha-ups-mqtt.py
 | `port` | ❌ | `1883` | MQTT broker port |
 | `username` | ✅ | — | MQTT broker username |
 | `password` | ✅ | — | MQTT broker password |
-| `base_topic` | ❌ | `home/ups` | Base MQTT topic prefix |
-| `client_id` | ❌ | `ha-ups-mqtt` | MQTT client identifier |
+| `base_topic` | ❌ | `nut2mqtt` | Base MQTT topic prefix |
+| `client_id` | ❌ | `nut2mqtt` | MQTT client identifier |
 
 ### `ups`
 
@@ -142,40 +143,40 @@ sudo useradd --system --no-create-home --group nogroup ups
 ### 2. Copy files to install directory
 
 ```bash
-sudo mkdir -p /opt/ha-ups-mqtt
-sudo cp -r . /opt/ha-ups-mqtt
-sudo chown -R ups:nogroup /opt/ha-ups-mqtt
+sudo mkdir -p /opt/nut2mqtt
+sudo cp -r . /opt/nut2mqtt
+sudo chown -R ups:nogroup /opt/nut2mqtt
 ```
 
 ### 3. Install dependencies
 
 ```bash
-sudo pip3 install -r /opt/ha-ups-mqtt/requirements.txt --break-system-packages
+sudo pip3 install -r /opt/nut2mqtt/requirements.txt --break-system-packages
 ```
 
 ### 4. Copy the service file
 
 ```bash
-sudo cp systemd/ha-ups-mqtt.service /etc/systemd/system/
+sudo cp systemd/nut2mqtt.service /etc/systemd/system/
 ```
 
 ### 5. Reload systemd and enable service
 
 ```bash
 sudo systemctl daemon-reload
-sudo systemctl enable --now ha-ups-mqtt
+sudo systemctl enable --now nut2mqtt
 ```
 
 ### 6. Check status
 
 ```bash
-systemctl status ha-ups-mqtt
+systemctl status nut2mqtt
 ```
 
 ### 7. View logs
 
 ```bash
-journalctl -u ha-ups-mqtt -f
+journalctl -u nut2mqtt -f
 ```
 
 ---

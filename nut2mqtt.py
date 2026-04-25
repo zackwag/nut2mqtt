@@ -11,12 +11,32 @@ import paho.mqtt.client as mqtt
 import yaml
 
 CONFIG_FILE = "config.yaml"
+APP_NAME = "nut2mqtt"
+CLIENT_ID = "nut2mqtt"
+
+DEFAULT_BASE_TOPIC    = "nut2mqtt"
+DEFAULT_POLL_INTERVAL = 30
+DEFAULT_MAX_ATTEMPTS  = 5
+DEFAULT_RETRY_DELAY   = 2
 
 logging.basicConfig(
     level=logging.INFO,
     format="%(asctime)s [%(levelname)s] %(message)s"
 )
 log = logging.getLogger(__name__)
+
+
+def log_info(msg):
+    log.info(f"{APP_NAME}: {msg}")
+
+def log_warning(msg):
+    log.warning(f"{APP_NAME}: {msg}")
+
+def log_error(msg):
+    log.error(f"{APP_NAME}: {msg}")
+
+def log_debug(msg):
+    log.debug(f"{APP_NAME}: {msg}")
 
 
 # ---------------------------------------------------------------------------
@@ -27,12 +47,15 @@ def load_config():
     """Load and return configuration from YAML file."""
     try:
         with open(CONFIG_FILE, "r") as f:
-            return yaml.safe_load(f)
+            return validate_config(yaml.safe_load(f))
     except FileNotFoundError:
-        log.error(f"ha-ups-mqtt: Config file '{CONFIG_FILE}' not found.")
+        log_error(f"Config file '{CONFIG_FILE}' not found.")
         sys.exit(1)
     except yaml.YAMLError as e:
-        log.error(f"ha-ups-mqtt: Failed to parse '{CONFIG_FILE}': {e}")
+        log_error(f"Failed to parse '{CONFIG_FILE}': {e}")
+        sys.exit(1)
+    except (KeyError, ValueError) as e:
+        log_error(f"Invalid configuration: {e}")
         sys.exit(1)
 
 
@@ -61,6 +84,7 @@ def validate_config(config):
     require_config(config, "ups", "friendly_name")
     if not config.get("sensors"):
         raise ValueError("No sensors defined in config.yaml under 'sensors'")
+    return config
 
 
 def sanitize_slug(value):
@@ -85,11 +109,11 @@ def read_ups(ups_name):
                 data[key.strip()] = val.strip()
         return data
     except Exception as e:
-        log.error(f"ha-ups-mqtt: Unexpected error reading UPS data: {e}")
+        log_error(f"Unexpected error reading UPS data: {e}")
         return {}
 
 
-def first_value(data, *keys, default="unknown"):
+def first_value(data, *keys, default=None):
     """Return the first key found in `data` that has a value."""
     for key in keys:
         value = data.get(key)
@@ -104,9 +128,9 @@ def read_ups_with_retry(ups_name, max_attempts, retry_delay):
         ups_data = read_ups(ups_name)
         if ups_data:
             return ups_data
-        log.warning(f"ha-ups-mqtt: UPS not reachable, retrying {attempt}/{max_attempts}...")
+        log_warning(f"UPS not reachable, retrying {attempt}/{max_attempts}...")
         time.sleep(retry_delay)
-    log.warning("ha-ups-mqtt: UPS unreachable at startup — device info will be partially unknown.")
+    log_warning("UPS unreachable at startup — device info will be partially unknown.")
     return {}
 
 
@@ -114,17 +138,22 @@ def setup_device_info(ups_conf, max_attempts, retry_delay):
     """Read UPS data and build the HA device info dict."""
     ups_data = read_ups_with_retry(ups_conf["name"], max_attempts, retry_delay)
 
-    sw_version = first_value(ups_data, "driver.version")
-    driver_data = ups_data.get("driver.version.data")
-    if driver_data and sw_version != "unknown":
-        sw_version = f"{sw_version} ({driver_data})"
+    driver_version = first_value(ups_data, "driver.version")
+    driver_data    = ups_data.get("driver.version.data")
+
+    if driver_version and driver_data:
+        sw_version = f"{driver_version} ({driver_data})"
+    elif driver_version:
+        sw_version = driver_version
+    else:
+        sw_version = "unknown"
 
     return {
         "identifiers": [sanitize_slug(ups_conf["name"])],
         "name": ups_conf["friendly_name"],
-        "manufacturer": first_value(ups_data, "device.mfr", "ups.mfr"),
-        "model": first_value(ups_data, "device.model", "ups.model"),
-        "sw_version": sw_version,
+        "manufacturer": first_value(ups_data, "device.mfr", "ups.mfr", default="unknown"),
+        "model":        first_value(ups_data, "device.model", "ups.model", default="unknown"),
+        "sw_version":   sw_version,
     }
 
 
@@ -154,21 +183,21 @@ def make_entity_id(device_name, key):
 def on_disconnect(client, userdata, disconnect_flags, reason_code, properties):
     """Reconnect on unexpected MQTT disconnect."""
     if reason_code != 0:
-        log.warning(f"ha-ups-mqtt: Unexpected disconnect (rc={reason_code}), attempting reconnect...")
+        log_warning(f"Unexpected disconnect (rc={reason_code}), attempting reconnect...")
         while True:
             try:
                 client.reconnect()
-                log.info("ha-ups-mqtt: Reconnected to MQTT broker")
+                log_info("Reconnected to MQTT broker")
                 break
             except Exception as e:
-                log.error(f"ha-ups-mqtt: Reconnect failed: {e}, retrying in 5s...")
+                log_error(f"Reconnect failed: {e}, retrying in 5s...")
                 time.sleep(5)
 
 
 def connect_mqtt(mqtt_conf, sensor_availability_topic):
     """Create, configure, and connect the MQTT client."""
     client = mqtt.Client(
-        client_id=mqtt_conf.get("client_id", "ha-ups-mqtt"),
+        client_id=mqtt_conf.get("client_id", CLIENT_ID),
         protocol=mqtt.MQTTv311,
         callback_api_version=mqtt.CallbackAPIVersion.VERSION2,
     )
@@ -182,8 +211,22 @@ def connect_mqtt(mqtt_conf, sensor_availability_topic):
     client.username_pw_set(mqtt_conf["username"], mqtt_conf["password"])
     client.connect(mqtt_conf["broker"], mqtt_conf["port"], 60)
     client.loop_start()
-    log.info(f"ha-ups-mqtt: Connected to MQTT at {mqtt_conf['broker']}:{mqtt_conf['port']}")
+    log_info(f"Connected to MQTT at {mqtt_conf['broker']}:{mqtt_conf['port']}")
     return client
+
+
+def register_signal_handlers(client, sensor_availability_topic, binary_availability_topic):
+    """Register SIGINT and SIGTERM handlers for graceful shutdown."""
+    def handle_exit(signum, frame):
+        log_info("Shutting down...")
+        client.publish(sensor_availability_topic, "offline", retain=True)
+        client.publish(binary_availability_topic, "offline", retain=True)
+        client.loop_stop()
+        client.disconnect()
+        sys.exit(0)
+
+    signal.signal(signal.SIGINT, handle_exit)
+    signal.signal(signal.SIGTERM, handle_exit)
 
 
 # ---------------------------------------------------------------------------
@@ -237,28 +280,34 @@ def build_binary_sensor_discovery(ups_slug, friendly_name, binary_availability_t
     return payload, entity_id
 
 
-def build_sensor_lookup(sensors, device_info, base_topic, availability_topic):
+def publish_and_build_lookup(client, sensors, device_info, base_topic,
+                             sensor_availability_topic):
     """
-    Pre-compute a lookup table of sensor metadata at startup.
+    Single pass over sensors — publish discovery and build lookup table simultaneously.
     Returns dict of {entity_id: {"key": ..., "state_topic": ..., "beeper": bool}}
     """
     lookup = {}
+
     for sensor in sensors:
-        result = build_sensor_discovery(sensor, device_info, base_topic, availability_topic)
+        result = build_sensor_discovery(sensor, device_info, base_topic, sensor_availability_topic)
         if not result:
             continue
+
         payload, entity_id = result
+        client.publish(build_discovery_topic(entity_id), json.dumps(payload), retain=True)
+
         lookup[entity_id] = {
             "key": sensor["key"],
             "state_topic": payload["state_topic"],
             "beeper": sensor["key"] == "ups.beeper.status",
         }
+
+    log_info(f"Published discovery config for {len(lookup)} sensors")
     return lookup
 
 
-def publish_all_discovery(client, config, device_info, ups_slug, base_topic,
-                          sensor_availability_topic, binary_availability_topic):
-    """Publish MQTT discovery config for all sensors and the binary sensor."""
+def publish_binary_discovery(client, ups_slug, device_info, binary_availability_topic):
+    """Publish MQTT discovery config for the UPS Connected binary sensor."""
     binary_payload, binary_entity_id = build_binary_sensor_discovery(
         ups_slug, device_info["name"], binary_availability_topic, device_info
     )
@@ -267,14 +316,7 @@ def publish_all_discovery(client, config, device_info, ups_slug, base_topic,
         json.dumps(binary_payload),
         retain=True
     )
-
-    for sensor in config["sensors"]:
-        result = build_sensor_discovery(sensor, device_info, base_topic, sensor_availability_topic)
-        if result:
-            payload, entity_id = result
-            client.publish(build_discovery_topic(entity_id), json.dumps(payload), retain=True)
-
-    log.info(f"ha-ups-mqtt: Published discovery config for {len(config['sensors'])} sensors")
+    log_info("Published binary sensor discovery config")
 
 
 # ---------------------------------------------------------------------------
@@ -285,7 +327,7 @@ def process_poll(client, ups_data, sensor_lookup, last_values,
                  sensor_availability_topic, binary_availability_topic):
     """Process a single poll result — publish state changes and prune stale sensors."""
     if not ups_data:
-        log.warning("ha-ups-mqtt: UPS not reachable — marking sensors offline")
+        log_warning("UPS not reachable — marking sensors offline")
         client.publish(sensor_availability_topic, "offline", retain=True)
         client.publish(binary_availability_topic, "offline", retain=True)
         last_values.clear()
@@ -311,17 +353,17 @@ def process_poll(client, ups_data, sensor_lookup, last_values,
             client.publish(meta["state_topic"], value, retain=True)
             last_values[entity_id] = value
             changed += 1
-            log.debug(f"ha-ups-mqtt: {entity_id} = {value}")
+            log_debug(f"{entity_id} = {value}")
 
     # Prune sensors no longer present in UPS data
     for entity_id in set(last_values.keys()) - current_entity_ids:
         del last_values[entity_id]
-        log.debug(f"ha-ups-mqtt: Pruned stale sensor {entity_id}")
+        log_debug(f"Pruned stale sensor {entity_id}")
 
     if changed > 0:
-        log.info(f"ha-ups-mqtt: Poll complete — {changed} value(s) changed")
+        log_info(f"Poll complete — {changed} value(s) changed")
     else:
-        log.debug("ha-ups-mqtt: Poll complete — no changes")
+        log_debug("Poll complete — no changes")
 
 
 def poll_loop(client, ups_name, sensor_lookup,
@@ -337,7 +379,7 @@ def poll_loop(client, ups_name, sensor_lookup,
                 sensor_availability_topic, binary_availability_topic
             )
         except Exception as e:
-            log.error(f"ha-ups-mqtt: Unexpected error in polling loop: {e}")
+            log_error(f"Unexpected error in polling loop: {e}")
 
         time.sleep(poll_interval)
 
@@ -348,15 +390,14 @@ def poll_loop(client, ups_name, sensor_lookup,
 
 def main():
     config = load_config()
-    validate_config(config)
 
     mqtt_conf = config["mqtt"]
     ups_conf  = config["ups"]
 
-    base_topic    = mqtt_conf.get("base_topic", "home/ups")
-    poll_interval = int(ups_conf.get("poll_interval", 30))
-    max_attempts  = int(ups_conf.get("startup_max_attempts", 5))
-    retry_delay   = int(ups_conf.get("startup_retry_delay", 2))
+    base_topic    = mqtt_conf.get("base_topic", DEFAULT_BASE_TOPIC)
+    poll_interval = int(ups_conf.get("poll_interval", DEFAULT_POLL_INTERVAL))
+    max_attempts  = int(ups_conf.get("startup_max_attempts", DEFAULT_MAX_ATTEMPTS))
+    retry_delay   = int(ups_conf.get("startup_retry_delay", DEFAULT_RETRY_DELAY))
 
     ups_slug = sanitize_slug(ups_conf["friendly_name"])
 
@@ -368,26 +409,14 @@ def main():
     client.publish(sensor_availability_topic, "online", retain=True)
     client.publish(binary_availability_topic, "online", retain=True)
 
-    def handle_exit(signum, frame):
-        log.info("ha-ups-mqtt: Shutting down...")
-        client.publish(sensor_availability_topic, "offline", retain=True)
-        client.publish(binary_availability_topic, "offline", retain=True)
-        client.loop_stop()
-        client.disconnect()
-        sys.exit(0)
-
-    signal.signal(signal.SIGINT, handle_exit)
-    signal.signal(signal.SIGTERM, handle_exit)
+    register_signal_handlers(client, sensor_availability_topic, binary_availability_topic)
 
     device_info = setup_device_info(ups_conf, max_attempts, retry_delay)
 
-    publish_all_discovery(
-        client, config, device_info, ups_slug,
-        base_topic, sensor_availability_topic, binary_availability_topic
-    )
+    publish_binary_discovery(client, ups_slug, device_info, binary_availability_topic)
 
-    sensor_lookup = build_sensor_lookup(
-        config["sensors"], device_info, base_topic, sensor_availability_topic
+    sensor_lookup = publish_and_build_lookup(
+        client, config["sensors"], device_info, base_topic, sensor_availability_topic
     )
 
     poll_loop(

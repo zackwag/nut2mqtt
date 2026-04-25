@@ -1,5 +1,5 @@
 [Unit]
-Description=HA UPS MQTT Bridge
+Description=NUT to MQTT Bridge
 After=network-online.target
 Wants=network-online.target
 
@@ -8,15 +8,14 @@ Type=simple
 # sudo useradd --system --no-create-home --group nogroup ups or switch to your own user & group
 User=ups
 Group=ups
-WorkingDirectory=/opt/ha-ups-mqtt
-ExecStart=/usr/bin/python3 /opt/ha-ups-mqtt/ha-ups-mqtt.py
+WorkingDirectory=/opt/nut2mqtt
+ExecStart=/usr/bin/python3 /opt/nut2mqtt/nut2mqtt.py
 Restart=on-failure
 RestartSec=5s
-
 # Optional: log to syslog/journal with nice identification
 StandardOutput=journal
 StandardError=journal
-SyslogIdentifier=ups-mqtt
+SyslogIdentifier=nut2mqtt
 
 [Install]
 WantedBy=multi-user.target
