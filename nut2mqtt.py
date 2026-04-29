@@ -11,8 +11,10 @@ import paho.mqtt.client as mqtt
 import yaml
 
 CONFIG_FILE = "config.yaml"
+LAST_VALUES_FILE = "last_values.json"
 APP_NAME = "nut2mqtt"
 CLIENT_ID = "nut2mqtt"
+__version__ = "1.4.0"
 
 DEFAULT_BASE_TOPIC    = "nut2mqtt"
 DEFAULT_POLL_INTERVAL = 30
@@ -90,6 +92,34 @@ def validate_config(config):
 def sanitize_slug(value):
     """Sanitize a string for safe use in MQTT topics and HA entity IDs."""
     return re.sub(r"[^a-z0-9_]", "_", value.lower().strip())
+
+
+# ---------------------------------------------------------------------------
+# Persistence
+# ---------------------------------------------------------------------------
+
+def load_last_values():
+    """Load persisted sensor values from disk."""
+    try:
+        with open(LAST_VALUES_FILE, "r") as f:
+            data = json.load(f)
+            log_info(f"Loaded {len(data)} persisted sensor value(s) from disk")
+            return data
+    except FileNotFoundError:
+        log_info("No persisted sensor values found, starting fresh")
+        return {}
+    except json.JSONDecodeError:
+        log_warning("Could not parse last_values.json, starting fresh")
+        return {}
+
+
+def save_last_values(last_values):
+    """Persist sensor values to disk."""
+    try:
+        with open(LAST_VALUES_FILE, "w") as f:
+            json.dump(last_values, f)
+    except Exception as e:
+        log_error(f"Failed to save last_values: {e}")
 
 
 # ---------------------------------------------------------------------------
@@ -331,6 +361,7 @@ def process_poll(client, ups_data, sensor_lookup, last_values,
         client.publish(sensor_availability_topic, "offline", retain=True)
         client.publish(binary_availability_topic, "offline", retain=True)
         last_values.clear()
+        save_last_values(last_values)
         return
 
     client.publish(sensor_availability_topic, "online", retain=True)
@@ -352,12 +383,14 @@ def process_poll(client, ups_data, sensor_lookup, last_values,
         if last_values.get(entity_id) != value:
             client.publish(meta["state_topic"], value, retain=True)
             last_values[entity_id] = value
+            save_last_values(last_values)
             changed += 1
             log_debug(f"{entity_id} = {value}")
 
     # Prune sensors no longer present in UPS data
     for entity_id in set(last_values.keys()) - current_entity_ids:
         del last_values[entity_id]
+        save_last_values(last_values)
         log_debug(f"Pruned stale sensor {entity_id}")
 
     if changed > 0:
@@ -369,7 +402,7 @@ def process_poll(client, ups_data, sensor_lookup, last_values,
 def poll_loop(client, ups_name, sensor_lookup,
               sensor_availability_topic, binary_availability_topic, poll_interval):
     """Main polling loop — reads UPS data and processes each result."""
-    last_values = {}
+    last_values = load_last_values()
 
     while True:
         try:
@@ -389,6 +422,7 @@ def poll_loop(client, ups_name, sensor_lookup,
 # ---------------------------------------------------------------------------
 
 def main():
+    log_info(f"Starting version {__version__}")
     config = load_config()
 
     mqtt_conf = config["mqtt"]
