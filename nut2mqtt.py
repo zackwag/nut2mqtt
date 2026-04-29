@@ -10,12 +10,16 @@ import time
 import paho.mqtt.client as mqtt
 import yaml
 
+# App Information
+__version__ = "1.4.0"
+APP_NAME = "nut2mqtt"
+
+# Filenames
 CONFIG_FILE = "config.yaml"
 LAST_VALUES_FILE = "last_values.json"
-APP_NAME = "nut2mqtt"
-CLIENT_ID = "nut2mqtt"
-__version__ = "1.4.0"
 
+# Default Config Values
+DEFAULT_CLIENT_ID = "nut2mqtt"
 DEFAULT_BASE_TOPIC    = "nut2mqtt"
 DEFAULT_POLL_INTERVAL = 30
 DEFAULT_MAX_ATTEMPTS  = 5
@@ -227,7 +231,7 @@ def on_disconnect(client, userdata, disconnect_flags, reason_code, properties):
 def connect_mqtt(mqtt_conf, sensor_availability_topic):
     """Create, configure, and connect the MQTT client."""
     client = mqtt.Client(
-        client_id=mqtt_conf.get("client_id", CLIENT_ID),
+        client_id=mqtt_conf.get("client_id", DEFAULT_CLIENT_ID),
         protocol=mqtt.MQTTv311,
         callback_api_version=mqtt.CallbackAPIVersion.VERSION2,
     )
