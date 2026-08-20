@@ -27,9 +27,8 @@ sensors:
   - key: "battery.charge.warning"
     unit: "%"
     type: "sensor"
-    icon: "mdi:battery-10"
+    icon: "mdi:gauge"
     friendly_name: "Battery Warning Setpoint"
-    device_class: "battery"
     entity_category: "diagnostic"
 
   - key: "battery.runtime"
