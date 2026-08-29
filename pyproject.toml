@@ -4,7 +4,7 @@ build-backend = "setuptools.backends.legacy:build"
 
 [project]
 name = "nut2mqtt"
-version = "1.5.0"
+version = "1.5.1"
 description = "A NUT to MQTT bridge for Home Assistant"
 requires-python = ">=3.10"
 dependencies = [
@@ -13,7 +13,7 @@ dependencies = [
 ]
 
 [tool.bumpversion]
-current_version = "1.5.0"
+current_version = "1.5.1"
 commit = true
 tag = true
 tag_name = "v{new_version}"
