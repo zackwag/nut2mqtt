@@ -48,10 +48,11 @@ if [[ "$RUN_NUT_SERVER" == "1" ]]; then
     exit 1
   fi
 
-  # Foreground upsd as a managed child so we can track it directly rather than
-  # relying on a pid file (which -F upsd does not write).
+  # Run upsd with -D: it stays foregrounded (so we can track it as a child and
+  # it writes no pid file) but, unlike -F, does not exit when its stdin closes —
+  # which is what a backgrounded shell job hands it. -D level 1 is quiet at idle.
   echo "[entrypoint] starting upsd..."
-  upsd -F -u root &
+  upsd -D -u root &
   UPSD_PID=$!
 
   ready=0
