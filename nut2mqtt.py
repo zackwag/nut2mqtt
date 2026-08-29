@@ -90,6 +90,9 @@ def validate_config(config):
     require_config(config, "ups", "friendly_name")
     if not config.get("sensors"):
         raise ValueError("No sensors defined in config.yaml under 'sensors'")
+    if config.get("commands"):
+        require_config(config, "ups", "upscmd_username")
+        require_config(config, "ups", "upscmd_password")
     return config
 
 
@@ -145,6 +148,36 @@ def read_ups(ups_name):
     except Exception as e:
         log_error(f"Unexpected error reading UPS data: {e}")
         return {}
+
+
+def run_upscmd(ups_name, command, username, password):
+    """Execute a NUT instant command via `upscmd`. Returns True on success."""
+    try:
+        result = subprocess.run(
+            ["upscmd", "-u", username, "-p", password, ups_name, command],
+            capture_output=True, text=True
+        )
+        if result.returncode != 0:
+            log_error(f"upscmd '{command}' failed: {result.stderr.strip()}")
+            return False
+        log_info(f"upscmd '{command}' executed successfully")
+        return True
+    except Exception as e:
+        log_error(f"Unexpected error running upscmd '{command}': {e}")
+        return False
+
+
+def log_available_upscmds(ups_name):
+    """Run `upscmd -l` and log the instant commands the UPS/driver supports."""
+    try:
+        result = subprocess.run(["upscmd", "-l", ups_name], capture_output=True, text=True)
+        if result.returncode != 0:
+            log_warning(f"Could not list UPS instant commands: {result.stderr.strip()}")
+            return
+        commands = [line.strip() for line in result.stdout.splitlines() if line.strip()]
+        log_info(f"UPS supports {len(commands)} instant command(s): {', '.join(commands)}")
+    except Exception as e:
+        log_error(f"Unexpected error listing UPS instant commands: {e}")
 
 
 def first_value(data, *keys, default=None):
@@ -203,6 +236,11 @@ def build_discovery_topic(entity_id, platform="sensor"):
 def build_state_topic(base_topic, entity_id):
     """Construct MQTT state topic for publishing sensor values."""
     return f"{base_topic}/{entity_id}/state"
+
+
+def build_command_topic(base_topic, entity_id):
+    """Construct MQTT command topic for receiving button presses."""
+    return f"{base_topic}/{entity_id}/set"
 
 
 def make_entity_id(device_name, key):
@@ -314,6 +352,38 @@ def build_binary_sensor_discovery(ups_slug, friendly_name, binary_availability_t
     return payload, entity_id
 
 
+def build_command_discovery(command, device_info, base_topic, availability_topic):
+    """
+    Build MQTT discovery payload for a button entity representing a NUT instant command.
+    Returns (payload_dict, entity_id) or None if command has no required fields.
+    """
+    key = command.get("key")
+    if not key:
+        return None
+
+    entity_id = make_entity_id(device_info["name"], key)
+
+    friendly_name = command["friendly_name"]
+    device_name_prefix = device_info["name"]
+    if friendly_name.startswith(device_name_prefix):
+        friendly_name = friendly_name[len(device_name_prefix):].strip()
+
+    payload = {
+        "name": f"{device_info['name']} {friendly_name}".strip(),
+        "command_topic": build_command_topic(base_topic, entity_id),
+        "payload_press": "PRESS",
+        "unique_id": entity_id,
+        "device": device_info,
+        "availability_topic": availability_topic,
+    }
+
+    for field in ("icon", "entity_category"):
+        if field in command:
+            payload[field] = command[field]
+
+    return payload, entity_id
+
+
 def publish_and_build_lookup(client, sensors, device_info, base_topic,
                              sensor_availability_topic):
     """
@@ -351,6 +421,38 @@ def publish_binary_discovery(client, ups_slug, device_info, binary_availability_
         retain=True
     )
     log_info("Published binary sensor discovery config")
+
+
+def publish_command_discovery_and_build_lookup(client, commands, device_info, base_topic,
+                                               sensor_availability_topic):
+    """
+    Publish MQTT discovery config for each configured NUT instant command as a
+    Home Assistant button entity. Returns dict of {command_topic: nut_command_key}.
+    """
+    lookup = {}
+
+    for command in commands:
+        result = build_command_discovery(command, device_info, base_topic, sensor_availability_topic)
+        if not result:
+            continue
+
+        payload, entity_id = result
+        client.publish(build_discovery_topic(entity_id, platform="button"), json.dumps(payload), retain=True)
+        lookup[payload["command_topic"]] = command["key"]
+
+    log_info(f"Published discovery config for {len(lookup)} command(s)")
+    return lookup
+
+
+def make_on_command_message(ups_name, command_lookup, username, password):
+    """Build an MQTT on_message handler that executes NUT instant commands."""
+    def on_message(client, userdata, msg):
+        command_key = command_lookup.get(msg.topic)
+        if command_key is None:
+            return
+        log_info(f"Received command '{command_key}' via MQTT")
+        run_upscmd(ups_name, command_key, username, password)
+    return on_message
 
 
 # ---------------------------------------------------------------------------
@@ -456,6 +558,22 @@ def main():
     sensor_lookup = publish_and_build_lookup(
         client, config["sensors"], device_info, base_topic, sensor_availability_topic
     )
+
+    commands_conf = config.get("commands")
+    if commands_conf:
+        log_available_upscmds(ups_conf["name"])
+
+        command_lookup = publish_command_discovery_and_build_lookup(
+            client, commands_conf, device_info, base_topic, sensor_availability_topic
+        )
+        if command_lookup:
+            client.on_message = make_on_command_message(
+                ups_conf["name"], command_lookup,
+                ups_conf["upscmd_username"], ups_conf["upscmd_password"]
+            )
+            for command_topic in command_lookup:
+                client.subscribe(command_topic)
+            log_info(f"Subscribed to {len(command_lookup)} command topic(s)")
 
     poll_loop(
         client, ups_conf["name"], sensor_lookup,

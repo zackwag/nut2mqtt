@@ -8,6 +8,10 @@ ups:
   name: "[CHANGEME]"
   friendly_name: "[CHANGEME]"
   poll_interval: 30
+  # Required only if 'commands' below is used — a NUT user with INSTCMD
+  # privileges for the commands you list (see upsd.users on the NUT server).
+  upscmd_username: "[CHANGEME]"
+  upscmd_password: "[CHANGEME]"
 
 sensors:
   - key: "battery.charge"
@@ -163,3 +167,27 @@ sensors:
     friendly_name: "Load Start Timer"
     device_class: "duration"
     entity_category: "diagnostic"
+
+# Optional. Each entry publishes a Home Assistant button entity that runs the
+# given NUT instant command (via `upscmd`) when pressed. Run `upscmd -l <ups>`
+# to see which commands your UPS/driver supports.
+commands:
+  - key: "beeper.mute"
+    icon: "mdi:volume-mute"
+    friendly_name: "Mute Beeper"
+    entity_category: "config"
+
+  - key: "beeper.enable"
+    icon: "mdi:volume-high"
+    friendly_name: "Enable Beeper"
+    entity_category: "config"
+
+  - key: "test.battery.start.quick"
+    icon: "mdi:battery-heart-variant"
+    friendly_name: "Start Quick Battery Test"
+    entity_category: "config"
+
+  - key: "test.battery.stop"
+    icon: "mdi:battery-heart-outline"
+    friendly_name: "Stop Battery Test"
+    entity_category: "config"
