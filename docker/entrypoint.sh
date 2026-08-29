@@ -55,22 +55,27 @@ if [[ "$RUN_NUT_SERVER" == "1" ]]; then
   upsd -D -u root &
   UPSD_PID=$!
 
+  # Wait for the driver's first real poll to land, not just for upsd to accept
+  # connections. `upsc <ups>` succeeds as soon as the driver socket is up, while
+  # it still only holds static driver.* params — the bridge reads device
+  # identity (device.mfr/model) once at startup, so it must see a polled value
+  # like ups.status first, or the HA device shows "unknown" until a restart.
   ready=0
-  for _ in $(seq 1 20); do
+  for _ in $(seq 1 30); do
     if ! kill -0 "$UPSD_PID" 2>/dev/null; then
       echo "[entrypoint] upsd exited during startup" >&2
       exit 1
     fi
-    if upsc "$UPS_NAME" >/dev/null 2>&1; then
+    if upsc "$UPS_NAME" ups.status >/dev/null 2>&1; then
       ready=1
       break
     fi
     sleep 1
   done
   if [[ "$ready" == "1" ]]; then
-    echo "[entrypoint] upsd is serving '$UPS_NAME'"
+    echo "[entrypoint] upsd is serving polled data for '$UPS_NAME'"
   else
-    echo "[entrypoint] WARNING: upsd not answering for '$UPS_NAME' yet, continuing" >&2
+    echo "[entrypoint] WARNING: no polled data from '$UPS_NAME' yet, continuing" >&2
   fi
 fi
 
