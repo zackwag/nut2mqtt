@@ -1,33 +1,23 @@
 #!/usr/bin/env bash
-# Starts the NUT UPS driver + upsd, then runs the nut2mqtt bridge, all in one
-# container. If any of them dies, the script exits so the container restarts.
+# Runs the NUT UPS driver + upsd + the nut2mqtt bridge in one container.
+# Exits (so the container restarts) if upsd or the bridge stops.
 #
-# Set RUN_NUT_SERVER=0 to skip the driver/upsd and run only the bridge against
-# an existing NUT server (point ups.name at "upsname@host" in config.yaml).
-set -euo pipefail
+# RUN_NUT_SERVER=0 skips the driver/upsd and runs only the bridge against an
+# existing NUT server (set ups.name to "upsname@host" in config.yaml).
+set -uo pipefail
 
 RUN_NUT_SERVER="${RUN_NUT_SERVER:-1}"
-STATE_DIR=/run/nut
+UPSD_PID=""
+BRIDGE_PID=""
 
 cleanup() {
-  echo "[entrypoint] stopping..."
-  [[ -n "${BRIDGE_PID:-}" ]] && kill -TERM "$BRIDGE_PID" 2>/dev/null || true
-  if [[ "$RUN_NUT_SERVER" == "1" ]]; then
-    upsd -c stop 2>/dev/null || true
-    upsdrvctl stop 2>/dev/null || true
-  fi
-  wait 2>/dev/null || true
+  echo "[entrypoint] shutting down..."
+  [[ -n "$BRIDGE_PID" ]] && kill -TERM "$BRIDGE_PID" 2>/dev/null || true
+  [[ -n "$UPSD_PID" ]] && kill -TERM "$UPSD_PID" 2>/dev/null || true
+  [[ "$RUN_NUT_SERVER" == "1" ]] && upsdrvctl -u root stop 2>/dev/null || true
   exit 0
 }
 trap cleanup TERM INT
-
-upsd_alive() {
-  local pf
-  for pf in /run/nut/upsd.pid /var/run/nut/upsd.pid; do
-    [[ -f "$pf" ]] && kill -0 "$(cat "$pf" 2>/dev/null)" 2>/dev/null && return 0
-  done
-  return 1
-}
 
 if [[ ! -f /data/config.yaml ]]; then
   echo "[entrypoint] ERROR: /data/config.yaml not found — mount your bridge config there." >&2
@@ -40,29 +30,46 @@ if [[ "$RUN_NUT_SERVER" == "1" ]]; then
     exit 1
   fi
 
-  mkdir -p "$STATE_DIR"
-  chown -R root:nut "$STATE_DIR" 2>/dev/null || true
+  # Fresh runtime dir — stale *.pid files survive a container restart and make
+  # upsd / upsdrvctl think a previous instance is still running.
+  mkdir -p /run/nut
+  rm -f /run/nut/*.pid
+  chown -R root:nut /run/nut 2>/dev/null || true
 
-  # Run driver and upsd as root so USB access and the driver socket keep working
-  # after a UPS reconnect (standard trade-off for NUT in a container).
-  echo "[entrypoint] starting UPS driver(s)..."
+  # First [section] in ups.conf is the UPS name (no awk in slim base images).
+  UPS_NAME="$(sed -n 's/^[[:space:]]*\[\([^]]*\)\].*/\1/p' /etc/nut/ups.conf | head -n1)"
+  [[ -n "$UPS_NAME" ]] || UPS_NAME="ups"
+
+  # Run as root: NUT is built --with-user=nut, but a passed-through USB node is
+  # typically root-owned, so a dropped-privilege driver can't open it.
+  echo "[entrypoint] starting UPS driver for '$UPS_NAME'..."
   if ! upsdrvctl -u root start; then
     echo "[entrypoint] driver failed to start — check USB passthrough and nut/ups.conf" >&2
     exit 1
   fi
 
+  # Foreground upsd as a managed child so we can track it directly rather than
+  # relying on a pid file (which -F upsd does not write).
   echo "[entrypoint] starting upsd..."
-  upsd -u root
+  upsd -F -u root &
+  UPSD_PID=$!
 
-  UPS_NAME="$(awk -F'[][]' '/^[[:space:]]*\[/{gsub(/[[:space:]]/,"",$2); print $2; exit}' /etc/nut/ups.conf 2>/dev/null || true)"
-  if [[ -n "$UPS_NAME" ]]; then
-    echo "[entrypoint] waiting for upsd to answer for '$UPS_NAME'..."
-    for _ in $(seq 1 15); do
-      upsc "$UPS_NAME" >/dev/null 2>&1 && break
-      sleep 1
-    done
+  ready=0
+  for _ in $(seq 1 20); do
+    if ! kill -0 "$UPSD_PID" 2>/dev/null; then
+      echo "[entrypoint] upsd exited during startup" >&2
+      exit 1
+    fi
+    if upsc "$UPS_NAME" >/dev/null 2>&1; then
+      ready=1
+      break
+    fi
+    sleep 1
+  done
+  if [[ "$ready" == "1" ]]; then
+    echo "[entrypoint] upsd is serving '$UPS_NAME'"
   else
-    sleep 2
+    echo "[entrypoint] WARNING: upsd not answering for '$UPS_NAME' yet, continuing" >&2
   fi
 fi
 
@@ -71,14 +78,8 @@ cd /data
 python3 /app/nut2mqtt.py &
 BRIDGE_PID=$!
 
-# Supervise: bail out (container restarts) if the bridge or upsd goes away.
-while kill -0 "$BRIDGE_PID" 2>/dev/null; do
-  if [[ "$RUN_NUT_SERVER" == "1" ]] && ! upsd_alive; then
-    echo "[entrypoint] upsd is gone — exiting for restart" >&2
-    cleanup
-  fi
-  sleep 5
-done
-
-echo "[entrypoint] nut2mqtt exited — shutting down" >&2
+# Exit as soon as either managed process stops; the container restart brings
+# the whole stack back cleanly.
+wait -n
+echo "[entrypoint] a managed process exited — restarting" >&2
 cleanup
