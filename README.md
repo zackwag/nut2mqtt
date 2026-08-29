@@ -19,6 +19,7 @@ leveraging MQTT Discovery.
 - Publishes UPS status and sensor values to MQTT
 - Auto-discovers entities in Home Assistant via MQTT Discovery
 - Publishes a **UPS Connected** binary sensor using MQTT LWT for reliable offline detection
+- Optionally exposes NUT instant commands (e.g. muting the beeper) as Home Assistant buttons via `upscmd`
 - Supports Home Assistant entity categories (e.g. diagnostics)
 - Configurable via YAML
 - Designed to run as a systemd service for reliability
@@ -116,6 +117,8 @@ python3 nut2mqtt.py
 | `poll_interval` | ❌ | `30` | Seconds between polls |
 | `startup_max_attempts` | ❌ | `5` | Retry attempts if UPS unreachable at startup |
 | `startup_retry_delay` | ❌ | `2` | Seconds between startup retries |
+| `upscmd_username` | ⚠️ | — | Required only if `commands` is used — NUT username with `INSTCMD` rights |
+| `upscmd_password` | ⚠️ | — | Required only if `commands` is used — password for `upscmd_username` |
 
 ### `sensors`
 
@@ -129,6 +132,34 @@ Each sensor entry supports the following fields:
 | `icon` | ❌ | MDI icon (e.g. `mdi:battery`) |
 | `device_class` | ❌ | Home Assistant device class (e.g. `battery`, `voltage`) |
 | `entity_category` | ❌ | Set to `diagnostic` to move sensor to Diagnostics section |
+
+### `commands`
+
+Optional. Each entry publishes a Home Assistant **button** entity that runs a
+[NUT instant command](https://networkupstools.org/docs/user-manual.chunked/apcs01.html)
+(via `upscmd`) when pressed — for example, muting the UPS beeper.
+
+| Key | Required | Description |
+|---|---|---|
+| `key` | ✅ | NUT instant command name (e.g. `beeper.mute`) |
+| `friendly_name` | ✅ | Display name in Home Assistant |
+| `icon` | ❌ | MDI icon (e.g. `mdi:volume-mute`) |
+| `entity_category` | ❌ | Set to `config` to group buttons under Device → Controls |
+
+Using `commands` requires `ups.upscmd_username` / `ups.upscmd_password` to be
+set to a NUT user with `INSTCMD` privileges for those commands, configured in
+`upsd.users` on the NUT server, e.g.:
+
+```
+[nut2mqtt]
+    password = [CHANGEME]
+    instcmds = beeper.mute
+    instcmds = beeper.enable
+```
+
+Run `upscmd -l <ups_name>` on the NUT server to list the instant commands your
+UPS and driver support — not all UPS models support beeper control or the same
+command names.
 
 ---
 
