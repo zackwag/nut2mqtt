@@ -1,0 +1,11 @@
+# upsd allows anonymous reads, so `upsc` (the bridge's polling) needs no account.
+#
+# You only need a user here if you enable `commands:` in config.yaml — instant
+# commands such as beeper.mute are sent with `upscmd`, which requires auth.
+# Match these to ups.upscmd_username / ups.upscmd_password in config.yaml.
+[nut2mqtt]
+    password = changeme
+    instcmds = beeper.mute
+    instcmds = beeper.enable
+    instcmds = test.battery.start.quick
+    instcmds = test.battery.stop

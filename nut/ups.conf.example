@@ -1,0 +1,16 @@
+maxretry = 3
+
+# One section per UPS. The section name ("ups" here) is what you put in
+# config.yaml as `ups.name`, and what `upsc` / `upscmd` use.
+[ups]
+    driver = usbhid-ups
+    port = auto
+    desc = "Home UPS"
+
+    # Most USB UPSes speak USB-HID (usbhid-ups). Many cheaper units instead
+    # need the Megatec/Q1 protocol — comment the two lines above and use:
+    #   driver = nutdrv_qx
+    #   port = auto
+    #
+    # If you have more than one identical UPS, pin this one by serial:
+    #   serial = 12345678

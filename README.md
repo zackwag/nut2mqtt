@@ -22,7 +22,7 @@ leveraging MQTT Discovery.
 - Optionally exposes NUT instant commands (e.g. muting the beeper) as Home Assistant buttons via `upscmd`
 - Supports Home Assistant entity categories (e.g. diagnostics)
 - Configurable via YAML
-- Designed to run as a systemd service for reliability
+- Runs as a systemd service or a container (Dockerfile included)
 
 ---
 
@@ -100,7 +100,7 @@ python3 nut2mqtt.py
 ### `mqtt`
 
 | Key | Required | Default | Description |
-|---|---|---|---|
+| --- | --- | --- | --- |
 | `broker` | ✅ | — | MQTT broker IP address |
 | `port` | ❌ | `1883` | MQTT broker port |
 | `username` | ✅ | — | MQTT broker username |
@@ -111,7 +111,7 @@ python3 nut2mqtt.py
 ### `ups`
 
 | Key | Required | Default | Description |
-|---|---|---|---|
+| --- | --- | --- | --- |
 | `name` | ✅ | — | UPS name as configured in NUT (used with `upsc`) |
 | `friendly_name` | ✅ | — | Display name used in Home Assistant |
 | `poll_interval` | ❌ | `30` | Seconds between polls |
@@ -125,7 +125,7 @@ python3 nut2mqtt.py
 Each sensor entry supports the following fields:
 
 | Key | Required | Description |
-|---|---|---|
+| --- | --- | --- |
 | `key` | ✅ | NUT variable name (e.g. `battery.charge`) |
 | `friendly_name` | ✅ | Display name in Home Assistant |
 | `unit` | ❌ | Unit of measurement (e.g. `%`, `V`, `s`) |
@@ -140,7 +140,7 @@ Optional. Each entry publishes a Home Assistant **button** entity that runs a
 (via `upscmd`) when pressed — for example, muting the UPS beeper.
 
 | Key | Required | Description |
-|---|---|---|
+| --- | --- | --- |
 | `key` | ✅ | NUT instant command name (e.g. `beeper.mute`) |
 | `friendly_name` | ✅ | Display name in Home Assistant |
 | `icon` | ❌ | MDI icon (e.g. `mdi:volume-mute`) |
@@ -153,7 +153,7 @@ Using `commands` requires `ups.upscmd_username` / `ups.upscmd_password` to be
 set to a NUT user with `INSTCMD` privileges for those commands, configured in
 `upsd.users` on the NUT server, e.g.:
 
-```
+```plaintext
 [nut2mqtt]
     password = [CHANGEME]
     instcmds = beeper.mute
@@ -165,6 +165,105 @@ set to a NUT user with `INSTCMD` privileges for those commands, configured in
 Run `upscmd -l <ups_name>` on the NUT server to list the instant commands your
 UPS and driver support — not all UPS models support beeper control or the same
 command names.
+
+---
+
+## Run in Docker
+
+The included image bundles everything in **one container**: the UPS driver, the
+NUT server (`upsd`), and the nut2mqtt bridge, wired together by
+[`docker/entrypoint.sh`](docker/entrypoint.sh). It expects the UPS on **USB**.
+
+```mermaid
+flowchart LR
+    ups([UPS])
+    ha([Home Assistant])
+
+    subgraph container["nut2mqtt container"]
+        direction LR
+        driver["usbhid-ups<br/>(driver)"] --> upsd["upsd<br/>(NUT server)"] --> bridge["nut2mqtt<br/>(bridge)"]
+    end
+
+    ups -->|USB| driver
+    bridge -->|MQTT| ha
+```
+
+### 1. NUT server config
+
+```bash
+for f in nut/*.example; do cp "$f" "${f%.example}"; done
+```
+
+Edit `nut/ups.conf` and set the `driver` for your model — `usbhid-ups` for most
+USB units, `nutdrv_qx` for many cheaper ones. The section name (`[ups]`) is the
+UPS name used everywhere else. Set a real password in `nut/upsd.users` only if
+you plan to use `commands:` (instant commands like `beeper.mute`).
+
+### 2. Bridge config
+
+```bash
+cp config.yaml.example config.yaml
+```
+
+Fill in the `mqtt` block. Set `ups.name: "ups"` to match the section in
+`nut/ups.conf`, and set `ups.friendly_name`. For instant commands, set
+`ups.upscmd_username` / `ups.upscmd_password` to match `nut/upsd.users`.
+
+### 3. Build and run
+
+```bash
+docker build -t nut2mqtt .
+
+docker run -d --name nut2mqtt --restart unless-stopped \
+  --device /dev/bus/usb:/dev/bus/usb \
+  -v "$PWD/nut:/etc/nut:ro" \
+  -v "$PWD/config.yaml:/data/config.yaml:ro" \
+  -v nut2mqtt-data:/data \
+  nut2mqtt
+```
+
+Check the logs and confirm the UPS is visible:
+
+```bash
+docker logs -f nut2mqtt
+docker exec nut2mqtt upsc ups
+```
+
+`nut/` is mounted read-only at `/etc/nut`; `config.yaml` read-only at
+`/data/config.yaml`; `last_values.json` lives in the `nut2mqtt-data` named
+volume so Home Assistant sensor state survives a restart.
+
+To expose the NUT server to your LAN (e.g. for Home Assistant's own NUT
+integration), set `LISTEN 0.0.0.0 3493` in `nut/upsd.conf` and add `-p 3493:3493`
+to the `docker run` command.
+
+> **Bridge only:** to run against a NUT server you already have, add
+> `-e RUN_NUT_SERVER=0`, drop the `--device` and `-v "$PWD/nut:/etc/nut:ro"`
+> flags, and point `ups.name` at `upsname@host` in `config.yaml`.
+
+### Running inside a Proxmox LXC
+
+The UPS has to be passed through twice: **host → LXC**, then **LXC → container**.
+
+**Host → LXC.** Run `lsusb` on the Proxmox host to find the UPS, then add to
+`/etc/pve/lxc/<vmid>.conf`:
+
+```plaintext
+# Docker-in-LXC
+features: nesting=1,keyctl=1
+# USB passthrough (189 = USB character-device major)
+lxc.cgroup2.devices.allow: c 189:* rwm
+lxc.mount.entry: /dev/bus/usb dev/bus/usb none bind,optional,create=dir
+```
+
+A **privileged** LXC is the least fiddly for USB; an unprivileged one also works
+with the two `lxc.*` lines above. Restart the LXC after editing.
+
+**LXC → container.** Handled by `--device /dev/bus/usb:/dev/bus/usb` on the
+`docker run` command shown above.
+
+If the UPS is unplugged and replugged, restart the container so it picks up the
+new device node.
 
 ---
 
@@ -227,7 +326,7 @@ in Settings → Devices & Services → MQTT.
 Assuming `friendly_name` is set to `Den UPS`:
 
 | Entity ID | Name |
-|---|---|
+| --- | --- |
 | `sensor.den_ups_battery_charge` | Den UPS Battery Charge |
 | `sensor.den_ups_input_voltage` | Den UPS Input Voltage |
 | `sensor.den_ups_output_voltage` | Den UPS Output Voltage |
@@ -253,6 +352,29 @@ runtime thresholds, and delay timers.
 > left to Home Assistant templates.
 
 ---
+
+## Releases
+
+Cutting a release publishes a multi-arch image to
+[`zackwag/nut2mqtt`](https://hub.docker.com/r/zackwag/nut2mqtt) on Docker Hub.
+
+```bash
+bump2version patch      # or minor / major — commits "Release X.Y.Z" and tags vX.Y.Z
+git push --follow-tags
+```
+
+The `vX.Y.Z` tag triggers [`.github/workflows/docker-publish.yml`](.github/workflows/docker-publish.yml),
+which builds `linux/amd64` + `linux/arm64` and pushes `X.Y.Z`, `X.Y`, and
+`latest`, then syncs [`docker/README.md`](docker/README.md) to the Docker Hub
+overview.
+
+**One-time setup:** create the `zackwag/nut2mqtt` repo on Docker Hub, then add
+two repository secrets in GitHub (Settings → Secrets and variables → Actions):
+
+| Secret | Value |
+| --- | --- |
+| `DOCKERHUB_USERNAME` | Your Docker Hub username |
+| `DOCKERHUB_TOKEN` | A Docker Hub access token with **Read, Write, Delete** scope (Docker Hub → Account settings → Personal access tokens) |
 
 ## Contributing
 

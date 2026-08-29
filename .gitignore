@@ -1,6 +1,15 @@
 # Active config (contains credentials)
 config.yaml
 
+# Runtime state
+last_values.json
+
+# Active NUT server config (upsd.users holds credentials)
+nut/nut.conf
+nut/ups.conf
+nut/upsd.conf
+nut/upsd.users
+
 # Python
 __pycache__/
 *.pyc
