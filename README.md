@@ -353,29 +353,6 @@ runtime thresholds, and delay timers.
 
 ---
 
-## Releases
-
-Cutting a release publishes a multi-arch image to
-[`zackwag/nut2mqtt`](https://hub.docker.com/r/zackwag/nut2mqtt) on Docker Hub.
-
-```bash
-bump2version patch      # or minor / major — commits "Release X.Y.Z" and tags vX.Y.Z
-git push --follow-tags
-```
-
-The `vX.Y.Z` tag triggers [`.github/workflows/docker-publish.yml`](.github/workflows/docker-publish.yml),
-which builds `linux/amd64` + `linux/arm64` and pushes `X.Y.Z`, `X.Y`, and
-`latest`, then syncs [`docker/README.md`](docker/README.md) to the Docker Hub
-overview.
-
-**One-time setup:** create the `zackwag/nut2mqtt` repo on Docker Hub, then add
-two repository secrets in GitHub (Settings → Secrets and variables → Actions):
-
-| Secret | Value |
-| --- | --- |
-| `DOCKERHUB_USERNAME` | Your Docker Hub username |
-| `DOCKERHUB_TOKEN` | A Docker Hub access token with **Read, Write, Delete** scope (Docker Hub → Account settings → Personal access tokens) |
-
 ## Contributing
 
 Pull requests are welcome! If you have improvements — new sensors, config options, bug fixes —
