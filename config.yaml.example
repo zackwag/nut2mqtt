@@ -185,9 +185,9 @@ commands:
   - key: "test.battery.start.quick"
     icon: "mdi:battery-heart-variant"
     friendly_name: "Start Quick Battery Test"
-    entity_category: "config"
+    entity_category: "diagnostic"
 
   - key: "test.battery.stop"
     icon: "mdi:battery-heart-outline"
     friendly_name: "Stop Battery Test"
-    entity_category: "config"
+    entity_category: "diagnostic"

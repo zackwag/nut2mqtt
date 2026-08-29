@@ -144,7 +144,10 @@ Optional. Each entry publishes a Home Assistant **button** entity that runs a
 | `key` | ✅ | NUT instant command name (e.g. `beeper.mute`) |
 | `friendly_name` | ✅ | Display name in Home Assistant |
 | `icon` | ❌ | MDI icon (e.g. `mdi:volume-mute`) |
-| `entity_category` | ❌ | Set to `config` to group buttons under Device → Controls |
+| `entity_category` | ❌ | `config` (Configuration section), `diagnostic` (Diagnostic section), or omit for the main Controls section |
+
+Use `config` for buttons that change a persistent device behavior (e.g. `beeper.mute`/`beeper.enable`)
+and `diagnostic` for buttons that trigger a self-test or maintenance action (e.g. `test.battery.*`).
 
 Using `commands` requires `ups.upscmd_username` / `ups.upscmd_password` to be
 set to a NUT user with `INSTCMD` privileges for those commands, configured in
