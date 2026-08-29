@@ -1,0 +1,7 @@
+# The bridge runs in the same container and reaches upsd over loopback, so
+# this is all you need for a bridge-only setup.
+LISTEN 127.0.0.1 3493
+
+# To let Home Assistant's NUT integration or other hosts connect, use:
+#   LISTEN 0.0.0.0 3493
+# and publish port 3493 in docker-compose.yml.
