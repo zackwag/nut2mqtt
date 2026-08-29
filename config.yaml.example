@@ -181,3 +181,13 @@ commands:
     icon: "mdi:volume-high"
     friendly_name: "Enable Beeper"
     entity_category: "config"
+
+  - key: "test.battery.start.quick"
+    icon: "mdi:battery-heart-variant"
+    friendly_name: "Start Quick Battery Test"
+    entity_category: "config"
+
+  - key: "test.battery.stop"
+    icon: "mdi:battery-heart-outline"
+    friendly_name: "Stop Battery Test"
+    entity_category: "config"

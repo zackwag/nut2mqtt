@@ -155,6 +155,8 @@ set to a NUT user with `INSTCMD` privileges for those commands, configured in
     password = [CHANGEME]
     instcmds = beeper.mute
     instcmds = beeper.enable
+    instcmds = test.battery.start.quick
+    instcmds = test.battery.stop
 ```
 
 Run `upscmd -l <ups_name>` on the NUT server to list the instant commands your
