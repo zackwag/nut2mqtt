@@ -167,6 +167,19 @@ def run_upscmd(ups_name, command, username, password):
         return False
 
 
+def log_available_upscmds(ups_name):
+    """Run `upscmd -l` and log the instant commands the UPS/driver supports."""
+    try:
+        result = subprocess.run(["upscmd", "-l", ups_name], capture_output=True, text=True)
+        if result.returncode != 0:
+            log_warning(f"Could not list UPS instant commands: {result.stderr.strip()}")
+            return
+        commands = [line.strip() for line in result.stdout.splitlines() if line.strip()]
+        log_info(f"UPS supports {len(commands)} instant command(s): {', '.join(commands)}")
+    except Exception as e:
+        log_error(f"Unexpected error listing UPS instant commands: {e}")
+
+
 def first_value(data, *keys, default=None):
     """Return the first key found in `data` that has a value."""
     for key in keys:
@@ -548,6 +561,8 @@ def main():
 
     commands_conf = config.get("commands")
     if commands_conf:
+        log_available_upscmds(ups_conf["name"])
+
         command_lookup = publish_command_discovery_and_build_lookup(
             client, commands_conf, device_info, base_topic, sensor_availability_topic
         )
