@@ -12,6 +12,8 @@ dependencies = [
     "pyyaml",
 ]
 
+# Release: `bump-my-version bump <patch|minor|major>` then `git push --follow-tags`.
+# Classic bump2version does not read pyproject.toml and will silently no-op here.
 [tool.bumpversion]
 current_version = "1.6.0"
 commit = true
