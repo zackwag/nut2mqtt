@@ -3,6 +3,7 @@ config.yaml
 
 # Runtime state
 last_values.json
+device_info.json
 
 # Active NUT server config (upsd.users holds credentials)
 nut/nut.conf

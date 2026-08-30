@@ -17,6 +17,11 @@ APP_NAME = "nut2mqtt"
 # Filenames
 CONFIG_FILE = "config.yaml"
 LAST_VALUES_FILE = "last_values.json"
+DEVICE_INFO_FILE = "device_info.json"
+
+# UPS-reported identity fields cached to disk so a restart still shows the real
+# manufacturer/model/firmware before the driver has polled them back.
+DEVICE_IDENTITY_FIELDS = ("manufacturer", "model", "sw_version")
 
 # Default Config Values
 DEFAULT_CLIENT_ID = "nut2mqtt"
@@ -141,6 +146,27 @@ def save_last_values(last_values):
         log_error(f"Failed to save last_values: {e}")
 
 
+def load_device_info_cache():
+    """Load the last known-good UPS identity fields, keyed by UPS id."""
+    try:
+        with open(DEVICE_INFO_FILE, "r") as f:
+            return json.load(f)
+    except FileNotFoundError:
+        return {}
+    except json.JSONDecodeError:
+        log_warning("Could not parse device_info.json, ignoring cache")
+        return {}
+
+
+def save_device_info_cache(cache):
+    """Persist known-good UPS identity fields to disk."""
+    try:
+        with open(DEVICE_INFO_FILE, "w") as f:
+            json.dump(cache, f)
+    except Exception as e:
+        log_error(f"Failed to save device_info cache: {e}")
+
+
 # ---------------------------------------------------------------------------
 # UPS
 # ---------------------------------------------------------------------------
@@ -213,26 +239,69 @@ def read_ups_with_retry(ups_name, max_attempts, retry_delay):
     return {}
 
 
-def setup_device_info(ups_conf, max_attempts, retry_delay):
-    """Read UPS data and build the HA device info dict."""
-    ups_data = read_ups_with_retry(ups_conf["name"], max_attempts, retry_delay)
-
+def _identity_from_ups_data(ups_data):
+    """Pull manufacturer/model/sw_version out of raw UPS data (values or None)."""
     driver_version = first_value(ups_data, "driver.version")
     driver_data    = ups_data.get("driver.version.data")
-
     if driver_version and driver_data:
         sw_version = f"{driver_version} ({driver_data})"
-    elif driver_version:
-        sw_version = driver_version
     else:
-        sw_version = "unknown"
+        sw_version = driver_version or None
 
     return {
-        "identifiers": [sanitize_slug(ups_conf["name"])],
-        "name": ups_conf["friendly_name"],
-        "manufacturer": first_value(ups_data, "device.mfr", "ups.mfr", default="unknown"),
-        "model":        first_value(ups_data, "device.model", "ups.model", default="unknown"),
+        "manufacturer": first_value(ups_data, "device.mfr", "ups.mfr"),
+        "model":        first_value(ups_data, "device.model", "ups.model"),
         "sw_version":   sw_version,
+    }
+
+
+def setup_device_info(ups_conf, max_attempts, retry_delay):
+    """
+    Build the HA device info dict from UPS data, falling back to the last
+    known-good values cached on disk when the UPS has not reported its identity
+    yet (common for a poll or two after a restart).
+    """
+    ups_id = sanitize_slug(ups_conf["name"])
+    ups_data = read_ups_with_retry(ups_conf["name"], max_attempts, retry_delay)
+
+    cache = load_device_info_cache()
+    cached = cache.get(ups_id, {})
+
+    # No cache to lean on — give the driver a few extra polls to report its
+    # identity before we publish "unknown" into retained discovery.
+    if not cached.get("manufacturer") and not cached.get("model"):
+        for _ in range(max_attempts):
+            identity = _identity_from_ups_data(ups_data)
+            if identity["manufacturer"] or identity["model"]:
+                break
+            time.sleep(retry_delay)
+            ups_data = read_ups(ups_conf["name"]) or ups_data
+
+    fresh = _identity_from_ups_data(ups_data)
+
+    resolved = {}
+    used_cache = False
+    for field in DEVICE_IDENTITY_FIELDS:
+        if fresh.get(field):
+            resolved[field] = fresh[field]
+        elif cached.get(field):
+            resolved[field] = cached[field]
+            used_cache = True
+        else:
+            resolved[field] = "unknown"
+
+    known_good = {f: v for f, v in resolved.items() if v != "unknown"}
+    if known_good and known_good != {f: cached.get(f) for f in known_good}:
+        cache[ups_id] = {**cached, **known_good}
+        save_device_info_cache(cache)
+
+    if used_cache:
+        log_info("Using cached UPS identity for fields the UPS has not reported yet")
+
+    return {
+        "identifiers": [ups_id],
+        "name": ups_conf["friendly_name"],
+        **resolved,
     }
 
 
@@ -436,7 +505,7 @@ def build_switch_discovery(switch, device_info, base_topic, availability_topic):
         "payload_off": "OFF",
         "state_on": "ON",
         "state_off": "OFF",
-        "optimistic": bool(switch.get("optimistic", True)),
+        "optimistic": bool(switch.get("optimistic", False)),
         "unique_id": entity_id,
         "device": device_info,
         "availability_topic": availability_topic,

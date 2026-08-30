@@ -183,7 +183,7 @@ status variable for its state and runs one of two [instant commands](https://net
 | `command_on` | ✅ | NUT instant command run when switched **on** (e.g. `beeper.enable`) |
 | `command_off` | ✅ | NUT instant command run when switched **off** (e.g. `beeper.disable`) |
 | `state_on` | ❌ | `status_key` value(s) that mean **on** — string or list. Default: `enabled` |
-| `optimistic` | ❌ | `true` (default): the toggle flips immediately on press, then the real value from the next poll reconciles it. `false`: the toggle only moves once `status_key` confirms it |
+| `optimistic` | ❌ | `false` (default): a normal sliding toggle driven by `status_key`. `true`: Home Assistant renders it as a pair of on/off push buttons and assumes the command worked — use it only if your UPS does not report `status_key` |
 | `icon` | ❌ | MDI icon (e.g. `mdi:bell`) |
 | `entity_category` | ❌ | `config`, `diagnostic`, or omit for the main Controls section |
 
@@ -261,8 +261,10 @@ docker exec nut2mqtt upsc ups
 ```
 
 `nut/` is mounted read-only at `/etc/nut`; `config.yaml` read-only at
-`/data/config.yaml`; `last_values.json` lives in the `nut2mqtt-data` named
-volume so Home Assistant sensor state survives a restart.
+`/data/config.yaml`. The `nut2mqtt-data` named volume holds `last_values.json`
+(so Home Assistant sensor state survives a restart) and `device_info.json` (the
+last known-good UPS manufacturer/model/firmware, so a restart doesn't briefly
+publish "unknown" before the driver has polled them back).
 
 To expose the NUT server to your LAN (e.g. for Home Assistant's own NUT
 integration), set `LISTEN 0.0.0.0 3493` in `nut/upsd.conf` and add `-p 3493:3493`

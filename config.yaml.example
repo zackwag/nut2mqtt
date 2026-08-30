@@ -204,6 +204,6 @@ switches:
     command_on: "beeper.enable"
     command_off: "beeper.disable"
     state_on: ["enabled", "muted"]
-    optimistic: true
+    optimistic: false
     icon: "mdi:bell"
     entity_category: "config"
