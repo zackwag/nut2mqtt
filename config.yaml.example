@@ -8,8 +8,8 @@ ups:
   name: "[CHANGEME]"
   friendly_name: "[CHANGEME]"
   poll_interval: 30
-  # Required only if 'commands' below is used — a NUT user with INSTCMD
-  # privileges for the commands you list (see upsd.users on the NUT server).
+  # Required only if 'commands' or 'switches' below is used — a NUT user with
+  # INSTCMD privileges for those commands (see upsd.users on the NUT server).
   upscmd_username: "[CHANGEME]"
   upscmd_password: "[CHANGEME]"
 
@@ -191,3 +191,19 @@ commands:
     icon: "mdi:battery-heart-outline"
     friendly_name: "Stop Battery Test"
     entity_category: "diagnostic"
+
+# Optional. Each entry publishes a Home Assistant switch entity: it reads
+# 'status_key' for its state and runs 'command_on' / 'command_off' (via
+# `upscmd`) when toggled. Needs upscmd_username / upscmd_password above.
+# If you use this, drop the matching button/sensor (e.g. the beeper.enable
+# button and the ups.beeper.status sensor) so you don't get duplicate entities.
+switches:
+  - key: "beeper"
+    friendly_name: "Beeper"
+    status_key: "ups.beeper.status"
+    command_on: "beeper.enable"
+    command_off: "beeper.disable"
+    state_on: ["enabled", "muted"]
+    optimistic: true
+    icon: "mdi:bell"
+    entity_category: "config"

@@ -25,6 +25,11 @@ DEFAULT_POLL_INTERVAL = 30
 DEFAULT_MAX_ATTEMPTS  = 5
 DEFAULT_RETRY_DELAY   = 2
 
+# After a switch runs its on/off instant command, wait this long before
+# re-reading the UPS so the driver has polled the new status back.
+SWITCH_STATE_SETTLE_SECONDS = 2
+DEFAULT_SWITCH_STATE_ON = ["enabled"]
+
 logging.basicConfig(
     level=logging.INFO,
     format="%(asctime)s [%(levelname)s] %(message)s"
@@ -93,6 +98,13 @@ def validate_config(config):
     if config.get("commands"):
         require_config(config, "ups", "upscmd_username")
         require_config(config, "ups", "upscmd_password")
+    if config.get("switches"):
+        require_config(config, "ups", "upscmd_username")
+        require_config(config, "ups", "upscmd_password")
+        for switch in config["switches"]:
+            for field in ("key", "friendly_name", "status_key", "command_on", "command_off"):
+                if not switch.get(field):
+                    raise ValueError(f"Switch entry is missing required field: '{field}'")
     return config
 
 
@@ -384,6 +396,59 @@ def build_command_discovery(command, device_info, base_topic, availability_topic
     return payload, entity_id
 
 
+def switch_state_on_values(switch):
+    """Return the set of (lowercased) status values that mean the switch is ON."""
+    values = switch.get("state_on") or DEFAULT_SWITCH_STATE_ON
+    if isinstance(values, str):
+        values = [values]
+    return {str(v).strip().lower() for v in values}
+
+
+def switch_state_from_status(raw, state_on_values):
+    """Map a raw NUT status string to the HA switch payload 'ON' or 'OFF'."""
+    return "ON" if str(raw).strip().lower() in state_on_values else "OFF"
+
+
+def build_switch_discovery(switch, device_info, base_topic, availability_topic):
+    """
+    Build MQTT discovery payload for a switch entity backed by a NUT status
+    variable plus a pair of on/off instant commands.
+    Returns (payload_dict, entity_id) or None if required fields are missing.
+    """
+    key = switch.get("key")
+    if not key or not switch.get("status_key"):
+        return None
+    if not switch.get("command_on") or not switch.get("command_off"):
+        return None
+
+    entity_id = make_entity_id(device_info["name"], key)
+
+    friendly_name = switch["friendly_name"]
+    device_name_prefix = device_info["name"]
+    if friendly_name.startswith(device_name_prefix):
+        friendly_name = friendly_name[len(device_name_prefix):].strip()
+
+    payload = {
+        "name": f"{device_info['name']} {friendly_name}".strip(),
+        "state_topic": build_state_topic(base_topic, entity_id),
+        "command_topic": build_command_topic(base_topic, entity_id),
+        "payload_on": "ON",
+        "payload_off": "OFF",
+        "state_on": "ON",
+        "state_off": "OFF",
+        "optimistic": bool(switch.get("optimistic", True)),
+        "unique_id": entity_id,
+        "device": device_info,
+        "availability_topic": availability_topic,
+    }
+
+    for field in ("icon", "entity_category"):
+        if field in switch:
+            payload[field] = switch[field]
+
+    return payload, entity_id
+
+
 def publish_and_build_lookup(client, sensors, device_info, base_topic,
                              sensor_availability_topic):
     """
@@ -444,14 +509,85 @@ def publish_command_discovery_and_build_lookup(client, commands, device_info, ba
     return lookup
 
 
-def make_on_command_message(ups_name, command_lookup, username, password):
-    """Build an MQTT on_message handler that executes NUT instant commands."""
+def publish_switch_discovery_and_build_lookups(client, switches, device_info, base_topic,
+                                               sensor_availability_topic):
+    """
+    Publish MQTT discovery config for each configured switch as a Home Assistant
+    switch entity. Returns (command_lookup, state_lookup):
+      command_lookup: {command_topic: {"on", "off", "status_key", "state_topic",
+                                       "state_on"}} — used by the message handler
+      state_lookup:   {entity_id: {"status_key", "state_topic", "state_on"}} —
+                      used by the poll loop to publish real state
+    """
+    command_lookup = {}
+    state_lookup = {}
+
+    for switch in switches:
+        result = build_switch_discovery(switch, device_info, base_topic, sensor_availability_topic)
+        if not result:
+            continue
+
+        payload, entity_id = result
+        client.publish(
+            build_discovery_topic(entity_id, platform="switch"),
+            json.dumps(payload), retain=True
+        )
+
+        meta = {
+            "status_key": switch["status_key"],
+            "state_topic": payload["state_topic"],
+            "state_on": switch_state_on_values(switch),
+        }
+        state_lookup[entity_id] = meta
+        command_lookup[payload["command_topic"]] = {
+            **meta,
+            "on": switch["command_on"],
+            "off": switch["command_off"],
+        }
+
+    log_info(f"Published discovery config for {len(state_lookup)} switch(es)")
+    return command_lookup, state_lookup
+
+
+def make_on_message(ups_name, command_lookup, switch_lookup, username, password):
+    """
+    Build an MQTT on_message handler for button command topics and switch
+    command topics.
+
+    A button press runs its instant command. A switch payload runs the matching
+    on/off instant command, then re-reads the UPS after a short settle delay and
+    republishes the real state so it converges even in non-optimistic mode.
+    """
     def on_message(client, userdata, msg):
         command_key = command_lookup.get(msg.topic)
-        if command_key is None:
+        if command_key is not None:
+            log_info(f"Received command '{command_key}' via MQTT")
+            run_upscmd(ups_name, command_key, username, password)
             return
-        log_info(f"Received command '{command_key}' via MQTT")
-        run_upscmd(ups_name, command_key, username, password)
+
+        meta = switch_lookup.get(msg.topic)
+        if meta is None:
+            return
+
+        payload = msg.payload.decode(errors="ignore").strip().upper()
+        if payload == "ON":
+            nut_command = meta["on"]
+        elif payload == "OFF":
+            nut_command = meta["off"]
+        else:
+            return
+
+        log_info(f"Received switch '{payload}' -> '{nut_command}' via MQTT")
+        if not run_upscmd(ups_name, nut_command, username, password):
+            return
+
+        time.sleep(SWITCH_STATE_SETTLE_SECONDS)
+        raw = read_ups(ups_name).get(meta["status_key"])
+        if raw is None:
+            return
+        state = switch_state_from_status(raw, meta["state_on"])
+        client.publish(meta["state_topic"], state, retain=True)
+        log_info(f"{meta['status_key']} is now '{raw}' -> switch {state}")
     return on_message
 
 
@@ -459,7 +595,7 @@ def make_on_command_message(ups_name, command_lookup, username, password):
 # Polling
 # ---------------------------------------------------------------------------
 
-def process_poll(client, ups_data, sensor_lookup, last_values,
+def process_poll(client, ups_data, sensor_lookup, switch_lookup, last_values,
                  sensor_availability_topic, binary_availability_topic):
     """Process a single poll result — publish state changes and prune stale sensors."""
     if not ups_data:
@@ -493,6 +629,21 @@ def process_poll(client, ups_data, sensor_lookup, last_values,
             changed += 1
             log_debug(f"{entity_id} = {value}")
 
+    for entity_id, meta in switch_lookup.items():
+        raw = ups_data.get(meta["status_key"])
+        if raw is None:
+            continue
+
+        current_entity_ids.add(entity_id)
+        state = switch_state_from_status(raw, meta["state_on"])
+
+        if last_values.get(entity_id) != state:
+            client.publish(meta["state_topic"], state, retain=True)
+            last_values[entity_id] = state
+            save_last_values(last_values)
+            changed += 1
+            log_debug(f"{entity_id} = {state}")
+
     # Prune sensors no longer present in UPS data
     for entity_id in set(last_values.keys()) - current_entity_ids:
         del last_values[entity_id]
@@ -505,7 +656,7 @@ def process_poll(client, ups_data, sensor_lookup, last_values,
         log_debug("Poll complete — no changes")
 
 
-def poll_loop(client, ups_name, sensor_lookup,
+def poll_loop(client, ups_name, sensor_lookup, switch_lookup,
               sensor_availability_topic, binary_availability_topic, poll_interval):
     """Main polling loop — reads UPS data and processes each result."""
     last_values = load_last_values()
@@ -514,7 +665,7 @@ def poll_loop(client, ups_name, sensor_lookup,
         try:
             ups_data = read_ups(ups_name)
             process_poll(
-                client, ups_data, sensor_lookup, last_values,
+                client, ups_data, sensor_lookup, switch_lookup, last_values,
                 sensor_availability_topic, binary_availability_topic
             )
         except Exception as e:
@@ -560,23 +711,39 @@ def main():
     )
 
     commands_conf = config.get("commands")
-    if commands_conf:
+    switches_conf = config.get("switches")
+
+    command_lookup = {}
+    switch_command_lookup = {}
+    switch_state_lookup = {}
+
+    if commands_conf or switches_conf:
         log_available_upscmds(ups_conf["name"])
 
+    if commands_conf:
         command_lookup = publish_command_discovery_and_build_lookup(
             client, commands_conf, device_info, base_topic, sensor_availability_topic
         )
-        if command_lookup:
-            client.on_message = make_on_command_message(
-                ups_conf["name"], command_lookup,
-                ups_conf["upscmd_username"], ups_conf["upscmd_password"]
-            )
-            for command_topic in command_lookup:
-                client.subscribe(command_topic)
-            log_info(f"Subscribed to {len(command_lookup)} command topic(s)")
+
+    if switches_conf:
+        switch_command_lookup, switch_state_lookup = publish_switch_discovery_and_build_lookups(
+            client, switches_conf, device_info, base_topic, sensor_availability_topic
+        )
+
+    if command_lookup or switch_command_lookup:
+        client.on_message = make_on_message(
+            ups_conf["name"], command_lookup, switch_command_lookup,
+            ups_conf["upscmd_username"], ups_conf["upscmd_password"]
+        )
+        for topic in (*command_lookup, *switch_command_lookup):
+            client.subscribe(topic)
+        log_info(
+            f"Subscribed to {len(command_lookup) + len(switch_command_lookup)} "
+            "command/switch topic(s)"
+        )
 
     poll_loop(
-        client, ups_conf["name"], sensor_lookup,
+        client, ups_conf["name"], sensor_lookup, switch_state_lookup,
         sensor_availability_topic, binary_availability_topic, poll_interval
     )
 
