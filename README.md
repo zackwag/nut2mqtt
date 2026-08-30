@@ -20,6 +20,7 @@ leveraging MQTT Discovery.
 - Auto-discovers entities in Home Assistant via MQTT Discovery
 - Publishes a **UPS Connected** binary sensor using MQTT LWT for reliable offline detection
 - Optionally exposes NUT instant commands (e.g. muting the beeper) as Home Assistant buttons via `upscmd`
+- Optionally exposes a NUT status variable plus a pair of on/off commands as a Home Assistant switch (e.g. an optimistic beeper toggle)
 - Supports Home Assistant entity categories (e.g. diagnostics)
 - Configurable via YAML
 - Runs as a systemd service or a container (Dockerfile included)
@@ -158,6 +159,7 @@ set to a NUT user with `INSTCMD` privileges for those commands, configured in
     password = [CHANGEME]
     instcmds = beeper.mute
     instcmds = beeper.enable
+    instcmds = beeper.disable
     instcmds = test.battery.start.quick
     instcmds = test.battery.stop
 ```
@@ -165,6 +167,35 @@ set to a NUT user with `INSTCMD` privileges for those commands, configured in
 Run `upscmd -l <ups_name>` on the NUT server to list the instant commands your
 UPS and driver support — not all UPS models support beeper control or the same
 command names.
+
+### `switches`
+
+Optional. Each entry publishes a Home Assistant **switch** entity. It reads a NUT
+status variable for its state and runs one of two [instant commands](https://networkupstools.org/docs/user-manual.chunked/apcs01.html)
+(via `upscmd`) when toggled — for example, an on/off beeper toggle backed by
+`ups.beeper.status` + `beeper.enable` / `beeper.disable`.
+
+| Key | Required | Description |
+| --- | --- | --- |
+| `key` | ✅ | Short identifier for the entity (e.g. `beeper`) |
+| `friendly_name` | ✅ | Display name in Home Assistant |
+| `status_key` | ✅ | NUT variable read back for the switch state (e.g. `ups.beeper.status`) |
+| `command_on` | ✅ | NUT instant command run when switched **on** (e.g. `beeper.enable`) |
+| `command_off` | ✅ | NUT instant command run when switched **off** (e.g. `beeper.disable`) |
+| `state_on` | ❌ | `status_key` value(s) that mean **on** — string or list. Default: `enabled` |
+| `optimistic` | ❌ | `true` (default): the toggle flips immediately on press, then the real value from the next poll reconciles it. `false`: the toggle only moves once `status_key` confirms it |
+| `icon` | ❌ | MDI icon (e.g. `mdi:bell`) |
+| `entity_category` | ❌ | `config`, `diagnostic`, or omit for the main Controls section |
+
+After a toggle, the bridge runs the command, waits briefly, then re-reads
+`status_key` and republishes the real state — so even in `optimistic: false`
+mode the switch converges within a couple of seconds instead of a full poll.
+
+Like `commands`, this needs `ups.upscmd_username` / `ups.upscmd_password` set to
+a NUT user with `INSTCMD` rights for `command_on` and `command_off` in
+`upsd.users`. If you use the switch, drop any button/sensor you had for the same
+thing (e.g. a `beeper.enable` button or a `ups.beeper.status` sensor) to avoid
+duplicate entities.
 
 ---
 
