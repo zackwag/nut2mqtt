@@ -8,6 +8,9 @@ ups:
   name: "[CHANGEME]"
   friendly_name: "[CHANGEME]"
   poll_interval: 30
+  # Seconds to wait after a command before re-reading the UPS (default: 0.5).
+  # Increase if your driver is slow to reflect changes.
+  settle_seconds: 0.5
   # Required only if 'commands' or 'switches' below is used — a NUT user with
   # INSTCMD privileges for those commands (see upsd.users on the NUT server).
   upscmd_username: "[CHANGEME]"

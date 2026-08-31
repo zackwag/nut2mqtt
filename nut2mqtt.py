@@ -32,7 +32,7 @@ DEFAULT_RETRY_DELAY   = 2
 
 # After a switch runs its on/off instant command, wait this long before
 # re-reading the UPS so the driver has polled the new status back.
-SWITCH_STATE_SETTLE_SECONDS = 2
+DEFAULT_SETTLE_SECONDS = 0.5
 DEFAULT_SWITCH_STATE_ON = ["enabled"]
 
 logging.basicConfig(
@@ -618,20 +618,30 @@ def publish_switch_discovery_and_build_lookups(client, switches, device_info, ba
     return command_lookup, state_lookup
 
 
-def make_on_message(ups_name, command_lookup, switch_lookup, username, password):
+def make_on_message(ups_name, command_lookup, switch_lookup, username, password,
+                    sensor_lookup, switch_state_lookup, last_values,
+                    sensor_availability_topic, binary_availability_topic,
+                    settle_seconds):
     """
     Build an MQTT on_message handler for button command topics and switch
     command topics.
 
-    A button press runs its instant command. A switch payload runs the matching
-    on/off instant command, then re-reads the UPS after a short settle delay and
-    republishes the real state so it converges even in non-optimistic mode.
+    After a successful command, waits for the driver to settle and then runs a
+    full poll so every sensor and switch reflects the new UPS state immediately.
     """
+    def _poll_now(client):
+        time.sleep(settle_seconds)
+        ups_data = read_ups(ups_name)
+        process_poll(client, ups_data, sensor_lookup, switch_state_lookup,
+                     last_values, sensor_availability_topic,
+                     binary_availability_topic)
+
     def on_message(client, userdata, msg):
         command_key = command_lookup.get(msg.topic)
         if command_key is not None:
             log_info(f"Received command '{command_key}' via MQTT")
-            run_upscmd(ups_name, command_key, username, password)
+            if run_upscmd(ups_name, command_key, username, password):
+                _poll_now(client)
             return
 
         meta = switch_lookup.get(msg.topic)
@@ -647,16 +657,8 @@ def make_on_message(ups_name, command_lookup, switch_lookup, username, password)
             return
 
         log_info(f"Received switch '{payload}' -> '{nut_command}' via MQTT")
-        if not run_upscmd(ups_name, nut_command, username, password):
-            return
-
-        time.sleep(SWITCH_STATE_SETTLE_SECONDS)
-        raw = read_ups(ups_name).get(meta["status_key"])
-        if raw is None:
-            return
-        state = switch_state_from_status(raw, meta["state_on"])
-        client.publish(meta["state_topic"], state, retain=True)
-        log_info(f"{meta['status_key']} is now '{raw}' -> switch {state}")
+        if run_upscmd(ups_name, nut_command, username, password):
+            _poll_now(client)
     return on_message
 
 
@@ -725,11 +727,9 @@ def process_poll(client, ups_data, sensor_lookup, switch_lookup, last_values,
         log_debug("Poll complete — no changes")
 
 
-def poll_loop(client, ups_name, sensor_lookup, switch_lookup,
+def poll_loop(client, ups_name, sensor_lookup, switch_lookup, last_values,
               sensor_availability_topic, binary_availability_topic, poll_interval):
     """Main polling loop — reads UPS data and processes each result."""
-    last_values = load_last_values()
-
     while True:
         try:
             ups_data = read_ups(ups_name)
@@ -754,10 +754,11 @@ def main():
     mqtt_conf = config["mqtt"]
     ups_conf  = config["ups"]
 
-    base_topic    = mqtt_conf.get("base_topic", DEFAULT_BASE_TOPIC)
-    poll_interval = int(ups_conf.get("poll_interval", DEFAULT_POLL_INTERVAL))
-    max_attempts  = int(ups_conf.get("startup_max_attempts", DEFAULT_MAX_ATTEMPTS))
-    retry_delay   = int(ups_conf.get("startup_retry_delay", DEFAULT_RETRY_DELAY))
+    base_topic      = mqtt_conf.get("base_topic", DEFAULT_BASE_TOPIC)
+    poll_interval   = int(ups_conf.get("poll_interval", DEFAULT_POLL_INTERVAL))
+    max_attempts    = int(ups_conf.get("startup_max_attempts", DEFAULT_MAX_ATTEMPTS))
+    retry_delay     = int(ups_conf.get("startup_retry_delay", DEFAULT_RETRY_DELAY))
+    settle_seconds  = float(ups_conf.get("settle_seconds", DEFAULT_SETTLE_SECONDS))
 
     ups_slug = sanitize_slug(ups_conf["friendly_name"])
 
@@ -799,10 +800,15 @@ def main():
             client, switches_conf, device_info, base_topic, sensor_availability_topic
         )
 
+    last_values = load_last_values()
+
     if command_lookup or switch_command_lookup:
         client.on_message = make_on_message(
             ups_conf["name"], command_lookup, switch_command_lookup,
-            ups_conf["upscmd_username"], ups_conf["upscmd_password"]
+            ups_conf["upscmd_username"], ups_conf["upscmd_password"],
+            sensor_lookup, switch_state_lookup, last_values,
+            sensor_availability_topic, binary_availability_topic,
+            settle_seconds,
         )
         for topic in (*command_lookup, *switch_command_lookup):
             client.subscribe(topic)
@@ -812,7 +818,7 @@ def main():
         )
 
     poll_loop(
-        client, ups_conf["name"], sensor_lookup, switch_state_lookup,
+        client, ups_conf["name"], sensor_lookup, switch_state_lookup, last_values,
         sensor_availability_topic, binary_availability_topic, poll_interval
     )
 
