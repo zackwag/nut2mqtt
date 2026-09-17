@@ -1,8 +1,8 @@
 name: Publish Docker image
 
 on:
-  # bump2version commits "Release X.Y.Z" and creates tag vX.Y.Z; pushing that
-  # tag (git push --follow-tags) is what publishes the image.
+  # release-please pushes the vX.Y.Z tag (and creates the GitHub release)
+  # when its release PR is merged; that tag push is what publishes the image.
   push:
     tags:
       - 'v*'
@@ -16,8 +16,6 @@ env:
 jobs:
   build:
     runs-on: ubuntu-latest
-    permissions:
-      contents: write   # create the GitHub release
     steps:
       - uses: actions/checkout@v7
 
@@ -62,14 +60,3 @@ jobs:
           password: ${{ secrets.DOCKERHUB_TOKEN }}
           repository: ${{ env.IMAGE }}
           readme-filepath: ./docker/README.md
-
-      - name: Create GitHub release
-        if: github.ref_type == 'tag'
-        env:
-          GH_TOKEN: ${{ github.token }}
-        run: |
-          gh release create "$GITHUB_REF_NAME" \
-            --repo "$GITHUB_REPOSITORY" \
-            --title "$GITHUB_REF_NAME" \
-            --generate-notes \
-            --verify-tag

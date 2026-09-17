@@ -11,22 +11,3 @@ dependencies = [
     "paho-mqtt",
     "pyyaml",
 ]
-
-# Release: `bump-my-version bump <patch|minor|major>` then `git push --follow-tags`.
-# Classic bump2version does not read pyproject.toml and will silently no-op here.
-[tool.bumpversion]
-current_version = "1.9.0"
-commit = true
-tag = true
-tag_name = "v{new_version}"
-message = "Release {new_version}"
-
-[[tool.bumpversion.files]]
-filename = "nut2mqtt.py"
-search = '__version__ = "{current_version}"'
-replace = '__version__ = "{new_version}"'
-
-[[tool.bumpversion.files]]
-filename = "pyproject.toml"
-search = 'version = "{current_version}"'
-replace = 'version = "{new_version}"'
