@@ -1,5 +1,12 @@
 # Changelog
 
+## [1.11.0](https://github.com/zackwag/nut2mqtt/compare/v1.10.1...v1.11.0) (2026-09-17)
+
+
+### Features
+
+* **ci:** add ruff lint + format check ([#33](https://github.com/zackwag/nut2mqtt/issues/33)) ([0f3d04b](https://github.com/zackwag/nut2mqtt/commit/0f3d04b5bb1e6d4b5ed2f1517d4cdb15b659eeab))
+
 ## [1.10.1](https://github.com/zackwag/nut2mqtt/compare/v1.10.0...v1.10.1) (2026-09-17)
 
 
