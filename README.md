@@ -347,6 +347,19 @@ systemctl status nut2mqtt
 journalctl -u nut2mqtt -f
 ```
 
+### Reloading sensors without a restart
+
+Send `SIGHUP` to reload `sensors` from `config.yaml` and republish discovery
+without dropping the MQTT connection or availability state:
+
+```bash
+sudo systemctl kill -s SIGHUP nut2mqtt
+```
+
+If the config fails to parse or validate, the reload is rejected and the
+previously running sensor list is kept. Changes to `mqtt`, `ups`, `commands`,
+or `switches` still require a restart.
+
 ---
 
 ## Home Assistant

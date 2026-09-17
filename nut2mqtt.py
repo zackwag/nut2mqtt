@@ -59,11 +59,16 @@ def log_debug(msg):
 # Config
 # ---------------------------------------------------------------------------
 
+def load_config_file():
+    """Load and validate configuration from YAML file. Raises on failure."""
+    with open(CONFIG_FILE, "r") as f:
+        return validate_config(yaml.safe_load(f))
+
+
 def load_config():
-    """Load and return configuration from YAML file."""
+    """Load configuration from YAML file, exiting the process on failure."""
     try:
-        with open(CONFIG_FILE, "r") as f:
-            return validate_config(yaml.safe_load(f))
+        return load_config_file()
     except FileNotFoundError:
         log_error(f"Config file '{CONFIG_FILE}' not found.")
         sys.exit(1)
@@ -73,6 +78,23 @@ def load_config():
     except (KeyError, ValueError) as e:
         log_error(f"Invalid configuration: {e}")
         sys.exit(1)
+
+
+def reload_config():
+    """
+    Load configuration for a SIGHUP reload. Unlike load_config(), never exits
+    the process — on failure it logs the problem and returns None so the
+    caller can keep running with the previous configuration.
+    """
+    try:
+        return load_config_file()
+    except FileNotFoundError:
+        log_error(f"Config reload failed: '{CONFIG_FILE}' not found.")
+    except yaml.YAMLError as e:
+        log_error(f"Config reload failed: could not parse '{CONFIG_FILE}': {e}")
+    except (KeyError, ValueError) as e:
+        log_error(f"Config reload failed: invalid configuration: {e}")
+    return None
 
 
 def require_config(cfg, *keys):
@@ -380,6 +402,43 @@ def register_signal_handlers(client, sensor_availability_topic, binary_availabil
 
     signal.signal(signal.SIGINT, handle_exit)
     signal.signal(signal.SIGTERM, handle_exit)
+
+
+def make_reload_handler(client, base_topic, device_info, sensor_availability_topic, sensor_lookup):
+    """
+    Build a SIGHUP handler that reloads config.yaml and rebuilds the sensor
+    lookup table in place — no reconnect, no interruption to MQTT
+    availability state. The lookup dict is mutated rather than reassigned so
+    the poll loop, which holds a reference to this same dict, picks up the
+    new contents automatically.
+
+    Only sensors are reloaded. MQTT/UPS connection settings, commands, and
+    switches are not re-read here — changing those still requires a restart.
+    """
+    def handle_reload(signum, frame):
+        log_info("SIGHUP received, reloading config...")
+        config = reload_config()
+        if config is None:
+            log_warning("Keeping previous configuration")
+            return
+
+        new_sensor_lookup = publish_and_build_lookup(
+            client, config["sensors"], device_info, base_topic, sensor_availability_topic
+        )
+        sensor_lookup.clear()
+        sensor_lookup.update(new_sensor_lookup)
+        log_info(f"Config reload complete — {len(sensor_lookup)} sensor(s)")
+
+    return handle_reload
+
+
+def register_reload_handler(client, base_topic, device_info, sensor_availability_topic, sensor_lookup):
+    """Register a SIGHUP handler that reloads config.yaml without restarting."""
+    if not hasattr(signal, "SIGHUP"):
+        return
+
+    handle_reload = make_reload_handler(client, base_topic, device_info, sensor_availability_topic, sensor_lookup)
+    signal.signal(signal.SIGHUP, handle_reload)
 
 
 # ---------------------------------------------------------------------------
@@ -778,6 +837,8 @@ def main():
     sensor_lookup = publish_and_build_lookup(
         client, config["sensors"], device_info, base_topic, sensor_availability_topic
     )
+
+    register_reload_handler(client, base_topic, device_info, sensor_availability_topic, sensor_lookup)
 
     commands_conf = config.get("commands")
     switches_conf = config.get("switches")
