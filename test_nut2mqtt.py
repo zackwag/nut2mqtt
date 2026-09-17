@@ -443,6 +443,18 @@ class TestReadUps:
     def test_returns_empty_on_exception(self, mock_run):
         assert read_ups("myups") == {}
 
+    @patch("nut2mqtt.subprocess.run")
+    def test_uses_default_upsc_path(self, mock_run):
+        mock_run.return_value = MagicMock(returncode=0, stdout="")
+        read_ups("myups")
+        assert mock_run.call_args[0][0][0] == "upsc"
+
+    @patch("nut2mqtt.subprocess.run")
+    def test_uses_configured_upsc_path(self, mock_run):
+        mock_run.return_value = MagicMock(returncode=0, stdout="")
+        read_ups("myups", "/opt/nut/bin/upsc")
+        assert mock_run.call_args[0][0][0] == "/opt/nut/bin/upsc"
+
 
 # --- run_upscmd (mocked subprocess) ---
 
@@ -461,6 +473,18 @@ class TestRunUpscmd:
     @patch("nut2mqtt.subprocess.run", side_effect=Exception("boom"))
     def test_exception(self, mock_run):
         assert run_upscmd("myups", "beeper.mute", "admin", "pass") is False
+
+    @patch("nut2mqtt.subprocess.run")
+    def test_uses_default_upscmd_path(self, mock_run):
+        mock_run.return_value = MagicMock(returncode=0)
+        run_upscmd("myups", "beeper.mute", "admin", "pass")
+        assert mock_run.call_args[0][0][0] == "upscmd"
+
+    @patch("nut2mqtt.subprocess.run")
+    def test_uses_configured_upscmd_path(self, mock_run):
+        mock_run.return_value = MagicMock(returncode=0)
+        run_upscmd("myups", "beeper.mute", "admin", "pass", "/opt/nut/bin/upscmd")
+        assert mock_run.call_args[0][0][0] == "/opt/nut/bin/upscmd"
 
 
 # --- Persistence ---

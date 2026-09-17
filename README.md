@@ -118,6 +118,8 @@ python3 nut2mqtt.py
 | `poll_interval` | ❌ | `30` | Seconds between polls |
 | `startup_max_attempts` | ❌ | `5` | Retry attempts if UPS unreachable at startup |
 | `startup_retry_delay` | ❌ | `2` | Seconds between startup retries |
+| `upsc_path` | ❌ | `upsc` | Path to the `upsc` binary — set this if your NUT install puts it somewhere non-standard |
+| `upscmd_path` | ❌ | `upscmd` | Path to the `upscmd` binary — same as `upsc_path`, for non-standard installs |
 | `upscmd_username` | ⚠️ | — | Required only if `commands` is used — NUT username with `INSTCMD` rights |
 | `upscmd_password` | ⚠️ | — | Required only if `commands` is used — password for `upscmd_username` |
 
