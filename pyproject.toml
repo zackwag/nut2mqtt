@@ -11,3 +11,6 @@ dependencies = [
     "paho-mqtt",
     "pyyaml",
 ]
+
+[tool.ruff]
+line-length = 100

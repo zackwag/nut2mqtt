@@ -1,4 +1,3 @@
-#!/usr/bin/env python3
 import json
 import logging
 import re
@@ -25,33 +24,33 @@ DEVICE_IDENTITY_FIELDS = ("manufacturer", "model", "sw_version")
 
 # Default Config Values
 DEFAULT_CLIENT_ID = "nut2mqtt"
-DEFAULT_BASE_TOPIC    = "nut2mqtt"
+DEFAULT_BASE_TOPIC = "nut2mqtt"
 DEFAULT_POLL_INTERVAL = 30
-DEFAULT_MAX_ATTEMPTS  = 5
-DEFAULT_RETRY_DELAY   = 2
-DEFAULT_UPSC_PATH     = "upsc"
-DEFAULT_UPSCMD_PATH   = "upscmd"
+DEFAULT_MAX_ATTEMPTS = 5
+DEFAULT_RETRY_DELAY = 2
+DEFAULT_UPSC_PATH = "upsc"
+DEFAULT_UPSCMD_PATH = "upscmd"
 
 # After a switch runs its on/off instant command, wait this long before
 # re-reading the UPS so the driver has polled the new status back.
 DEFAULT_SETTLE_SECONDS = 0.5
 DEFAULT_SWITCH_STATE_ON = ["enabled"]
 
-logging.basicConfig(
-    level=logging.INFO,
-    format="%(asctime)s [%(levelname)s] %(message)s"
-)
+logging.basicConfig(level=logging.INFO, format="%(asctime)s [%(levelname)s] %(message)s")
 log = logging.getLogger(__name__)
 
 
 def log_info(msg):
     log.info(f"{APP_NAME}: {msg}")
 
+
 def log_warning(msg):
     log.warning(f"{APP_NAME}: {msg}")
 
+
 def log_error(msg):
     log.error(f"{APP_NAME}: {msg}")
+
 
 def log_debug(msg):
     log.debug(f"{APP_NAME}: {msg}")
@@ -60,6 +59,7 @@ def log_debug(msg):
 # ---------------------------------------------------------------------------
 # Config
 # ---------------------------------------------------------------------------
+
 
 def load_config_file():
     """Load and validate configuration from YAML file. Raises on failure."""
@@ -131,7 +131,13 @@ def validate_config(config):
         require_config(config, "ups", "upscmd_username")
         require_config(config, "ups", "upscmd_password")
         for switch in config["switches"]:
-            for field in ("key", "friendly_name", "status_key", "command_on", "command_off"):
+            for field in (
+                "key",
+                "friendly_name",
+                "status_key",
+                "command_on",
+                "command_off",
+            ):
                 if not switch.get(field):
                     raise ValueError(f"Switch entry is missing required field: '{field}'")
     return config
@@ -145,6 +151,7 @@ def sanitize_slug(value):
 # ---------------------------------------------------------------------------
 # Persistence
 # ---------------------------------------------------------------------------
+
 
 def load_last_values():
     """Load persisted sensor values from disk."""
@@ -166,7 +173,7 @@ def save_last_values(last_values):
     try:
         with open(LAST_VALUES_FILE, "w") as f:
             json.dump(last_values, f)
-    except Exception as e:
+    except Exception as e:  # noqa: BLE001 - best-effort persistence, never crash the daemon over it
         log_error(f"Failed to save last_values: {e}")
 
 
@@ -187,7 +194,7 @@ def save_device_info_cache(cache):
     try:
         with open(DEVICE_INFO_FILE, "w") as f:
             json.dump(cache, f)
-    except Exception as e:
+    except Exception as e:  # noqa: BLE001 - best-effort persistence, never crash the daemon over it
         log_error(f"Failed to save device_info cache: {e}")
 
 
@@ -195,10 +202,11 @@ def save_device_info_cache(cache):
 # UPS
 # ---------------------------------------------------------------------------
 
+
 def read_ups(ups_name, upsc_path=DEFAULT_UPSC_PATH):
     """Call `upsc` to get UPS status and return as dict of key/value pairs."""
     try:
-        result = subprocess.run([upsc_path, ups_name], capture_output=True, text=True)
+        result = subprocess.run([upsc_path, ups_name], capture_output=True, text=True, check=False)
         if result.returncode != 0:
             return {}
         data = {}
@@ -207,7 +215,7 @@ def read_ups(ups_name, upsc_path=DEFAULT_UPSC_PATH):
                 key, val = line.split(":", 1)
                 data[key.strip()] = val.strip()
         return data
-    except Exception as e:
+    except Exception as e:  # noqa: BLE001 - polling loop must survive any single bad poll
         log_error(f"Unexpected error reading UPS data: {e}")
         return {}
 
@@ -217,14 +225,16 @@ def run_upscmd(ups_name, command, username, password, upscmd_path=DEFAULT_UPSCMD
     try:
         result = subprocess.run(
             [upscmd_path, "-u", username, "-p", password, ups_name, command],
-            capture_output=True, text=True
+            capture_output=True,
+            text=True,
+            check=False,
         )
         if result.returncode != 0:
             log_error(f"upscmd '{command}' failed: {result.stderr.strip()}")
             return False
         log_info(f"upscmd '{command}' executed successfully")
         return True
-    except Exception as e:
+    except Exception as e:  # noqa: BLE001 - caller expects True/False, never an exception
         log_error(f"Unexpected error running upscmd '{command}': {e}")
         return False
 
@@ -232,13 +242,15 @@ def run_upscmd(ups_name, command, username, password, upscmd_path=DEFAULT_UPSCMD
 def log_available_upscmds(ups_name, upscmd_path=DEFAULT_UPSCMD_PATH):
     """Run `upscmd -l` and log the instant commands the UPS/driver supports."""
     try:
-        result = subprocess.run([upscmd_path, "-l", ups_name], capture_output=True, text=True)
+        result = subprocess.run(
+            [upscmd_path, "-l", ups_name], capture_output=True, text=True, check=False
+        )
         if result.returncode != 0:
             log_warning(f"Could not list UPS instant commands: {result.stderr.strip()}")
             return
         commands = [line.strip() for line in result.stdout.splitlines() if line.strip()]
         log_info(f"UPS supports {len(commands)} instant command(s): {', '.join(commands)}")
-    except Exception as e:
+    except Exception as e:  # noqa: BLE001 - informational only, must not take the daemon down
         log_error(f"Unexpected error listing UPS instant commands: {e}")
 
 
@@ -266,7 +278,7 @@ def read_ups_with_retry(ups_name, max_attempts, retry_delay, upsc_path=DEFAULT_U
 def _identity_from_ups_data(ups_data):
     """Pull manufacturer/model/sw_version out of raw UPS data (values or None)."""
     driver_version = first_value(ups_data, "driver.version")
-    driver_data    = ups_data.get("driver.version.data")
+    driver_data = ups_data.get("driver.version.data")
     if driver_version and driver_data:
         sw_version = f"{driver_version} ({driver_data})"
     else:
@@ -274,8 +286,8 @@ def _identity_from_ups_data(ups_data):
 
     return {
         "manufacturer": first_value(ups_data, "device.mfr", "ups.mfr"),
-        "model":        first_value(ups_data, "device.model", "ups.model"),
-        "sw_version":   sw_version,
+        "model": first_value(ups_data, "device.model", "ups.model"),
+        "sw_version": sw_version,
     }
 
 
@@ -334,6 +346,7 @@ def setup_device_info(ups_conf, max_attempts, retry_delay):
 # MQTT helpers
 # ---------------------------------------------------------------------------
 
+
 def build_discovery_topic(entity_id, platform="sensor"):
     """Construct Home Assistant MQTT discovery topic."""
     return f"homeassistant/{platform}/{entity_id}/config"
@@ -354,7 +367,7 @@ def make_entity_id(device_name, key):
     base = sanitize_slug(device_name)
     key_clean = sanitize_slug(key)
     if key_clean.startswith(base + "_"):
-        key_clean = key_clean[len(base) + 1:]
+        key_clean = key_clean[len(base) + 1 :]
     return f"{base}_{key_clean}"
 
 
@@ -367,7 +380,7 @@ def on_disconnect(client, userdata, disconnect_flags, reason_code, properties):
                 client.reconnect()
                 log_info("Reconnected to MQTT broker")
                 break
-            except Exception as e:
+            except Exception as e:  # noqa: BLE001 - infinite retry loop, must catch anything to keep retrying
                 log_error(f"Reconnect failed: {e}, retrying in 5s...")
                 time.sleep(5)
 
@@ -395,6 +408,7 @@ def connect_mqtt(mqtt_conf, sensor_availability_topic):
 
 def register_signal_handlers(client, sensor_availability_topic, binary_availability_topic):
     """Register SIGINT and SIGTERM handlers for graceful shutdown."""
+
     def handle_exit(signum, frame):
         log_info("Shutting down...")
         client.publish(sensor_availability_topic, "offline", retain=True)
@@ -418,6 +432,7 @@ def make_reload_handler(client, base_topic, device_info, sensor_availability_top
     Only sensors are reloaded. MQTT/UPS connection settings, commands, and
     switches are not re-read here — changing those still requires a restart.
     """
+
     def handle_reload(signum, frame):
         log_info("SIGHUP received, reloading config...")
         config = reload_config()
@@ -426,7 +441,11 @@ def make_reload_handler(client, base_topic, device_info, sensor_availability_top
             return
 
         new_sensor_lookup = publish_and_build_lookup(
-            client, config["sensors"], device_info, base_topic, sensor_availability_topic
+            client,
+            config["sensors"],
+            device_info,
+            base_topic,
+            sensor_availability_topic,
         )
         sensor_lookup.clear()
         sensor_lookup.update(new_sensor_lookup)
@@ -435,18 +454,23 @@ def make_reload_handler(client, base_topic, device_info, sensor_availability_top
     return handle_reload
 
 
-def register_reload_handler(client, base_topic, device_info, sensor_availability_topic, sensor_lookup):
+def register_reload_handler(
+    client, base_topic, device_info, sensor_availability_topic, sensor_lookup
+):
     """Register a SIGHUP handler that reloads config.yaml without restarting."""
     if not hasattr(signal, "SIGHUP"):
         return
 
-    handle_reload = make_reload_handler(client, base_topic, device_info, sensor_availability_topic, sensor_lookup)
+    handle_reload = make_reload_handler(
+        client, base_topic, device_info, sensor_availability_topic, sensor_lookup
+    )
     signal.signal(signal.SIGHUP, handle_reload)
 
 
 # ---------------------------------------------------------------------------
 # Discovery payloads
 # ---------------------------------------------------------------------------
+
 
 def build_sensor_discovery(sensor, device_info, base_topic, availability_topic):
     """
@@ -462,7 +486,7 @@ def build_sensor_discovery(sensor, device_info, base_topic, availability_topic):
     friendly_name = sensor["friendly_name"]
     device_name_prefix = device_info["name"]
     if friendly_name.startswith(device_name_prefix):
-        friendly_name = friendly_name[len(device_name_prefix):].strip()
+        friendly_name = friendly_name[len(device_name_prefix) :].strip()
 
     payload = {
         "name": f"{device_info['name']} {friendly_name}".strip(),
@@ -509,7 +533,7 @@ def build_command_discovery(command, device_info, base_topic, availability_topic
     friendly_name = command["friendly_name"]
     device_name_prefix = device_info["name"]
     if friendly_name.startswith(device_name_prefix):
-        friendly_name = friendly_name[len(device_name_prefix):].strip()
+        friendly_name = friendly_name[len(device_name_prefix) :].strip()
 
     payload = {
         "name": f"{device_info['name']} {friendly_name}".strip(),
@@ -557,7 +581,7 @@ def build_switch_discovery(switch, device_info, base_topic, availability_topic):
     friendly_name = switch["friendly_name"]
     device_name_prefix = device_info["name"]
     if friendly_name.startswith(device_name_prefix):
-        friendly_name = friendly_name[len(device_name_prefix):].strip()
+        friendly_name = friendly_name[len(device_name_prefix) :].strip()
 
     payload = {
         "name": f"{device_info['name']} {friendly_name}".strip(),
@@ -580,8 +604,7 @@ def build_switch_discovery(switch, device_info, base_topic, availability_topic):
     return payload, entity_id
 
 
-def publish_and_build_lookup(client, sensors, device_info, base_topic,
-                             sensor_availability_topic):
+def publish_and_build_lookup(client, sensors, device_info, base_topic, sensor_availability_topic):
     """
     Single pass over sensors — publish discovery and build lookup table simultaneously.
     Returns dict of {entity_id: {"key": ..., "state_topic": ..., "beeper": bool}}
@@ -614,13 +637,14 @@ def publish_binary_discovery(client, ups_slug, device_info, binary_availability_
     client.publish(
         build_discovery_topic(binary_entity_id, platform="binary_sensor"),
         json.dumps(binary_payload),
-        retain=True
+        retain=True,
     )
     log_info("Published binary sensor discovery config")
 
 
-def publish_command_discovery_and_build_lookup(client, commands, device_info, base_topic,
-                                               sensor_availability_topic):
+def publish_command_discovery_and_build_lookup(
+    client, commands, device_info, base_topic, sensor_availability_topic
+):
     """
     Publish MQTT discovery config for each configured NUT instant command as a
     Home Assistant button entity. Returns dict of {command_topic: nut_command_key}.
@@ -628,20 +652,27 @@ def publish_command_discovery_and_build_lookup(client, commands, device_info, ba
     lookup = {}
 
     for command in commands:
-        result = build_command_discovery(command, device_info, base_topic, sensor_availability_topic)
+        result = build_command_discovery(
+            command, device_info, base_topic, sensor_availability_topic
+        )
         if not result:
             continue
 
         payload, entity_id = result
-        client.publish(build_discovery_topic(entity_id, platform="button"), json.dumps(payload), retain=True)
+        client.publish(
+            build_discovery_topic(entity_id, platform="button"),
+            json.dumps(payload),
+            retain=True,
+        )
         lookup[payload["command_topic"]] = command["key"]
 
     log_info(f"Published discovery config for {len(lookup)} command(s)")
     return lookup
 
 
-def publish_switch_discovery_and_build_lookups(client, switches, device_info, base_topic,
-                                               sensor_availability_topic):
+def publish_switch_discovery_and_build_lookups(
+    client, switches, device_info, base_topic, sensor_availability_topic
+):
     """
     Publish MQTT discovery config for each configured switch as a Home Assistant
     switch entity. Returns (command_lookup, state_lookup):
@@ -661,7 +692,8 @@ def publish_switch_discovery_and_build_lookups(client, switches, device_info, ba
         payload, entity_id = result
         client.publish(
             build_discovery_topic(entity_id, platform="switch"),
-            json.dumps(payload), retain=True
+            json.dumps(payload),
+            retain=True,
         )
 
         meta = {
@@ -680,11 +712,21 @@ def publish_switch_discovery_and_build_lookups(client, switches, device_info, ba
     return command_lookup, state_lookup
 
 
-def make_on_message(ups_name, command_lookup, switch_lookup, username, password,
-                    sensor_lookup, switch_state_lookup, last_values,
-                    sensor_availability_topic, binary_availability_topic,
-                    settle_seconds, upsc_path=DEFAULT_UPSC_PATH,
-                    upscmd_path=DEFAULT_UPSCMD_PATH):
+def make_on_message(
+    ups_name,
+    command_lookup,
+    switch_lookup,
+    username,
+    password,
+    sensor_lookup,
+    switch_state_lookup,
+    last_values,
+    sensor_availability_topic,
+    binary_availability_topic,
+    settle_seconds,
+    upsc_path=DEFAULT_UPSC_PATH,
+    upscmd_path=DEFAULT_UPSCMD_PATH,
+):
     """
     Build an MQTT on_message handler for button command topics and switch
     command topics.
@@ -692,12 +734,19 @@ def make_on_message(ups_name, command_lookup, switch_lookup, username, password,
     After a successful command, waits for the driver to settle and then runs a
     full poll so every sensor and switch reflects the new UPS state immediately.
     """
+
     def _poll_now(client):
         time.sleep(settle_seconds)
         ups_data = read_ups(ups_name, upsc_path)
-        process_poll(client, ups_data, sensor_lookup, switch_state_lookup,
-                     last_values, sensor_availability_topic,
-                     binary_availability_topic)
+        process_poll(
+            client,
+            ups_data,
+            sensor_lookup,
+            switch_state_lookup,
+            last_values,
+            sensor_availability_topic,
+            binary_availability_topic,
+        )
 
     def on_message(client, userdata, msg):
         command_key = command_lookup.get(msg.topic)
@@ -722,6 +771,7 @@ def make_on_message(ups_name, command_lookup, switch_lookup, username, password,
         log_info(f"Received switch '{payload}' -> '{nut_command}' via MQTT")
         if run_upscmd(ups_name, nut_command, username, password, upscmd_path):
             _poll_now(client)
+
     return on_message
 
 
@@ -729,8 +779,16 @@ def make_on_message(ups_name, command_lookup, switch_lookup, username, password,
 # Polling
 # ---------------------------------------------------------------------------
 
-def process_poll(client, ups_data, sensor_lookup, switch_lookup, last_values,
-                 sensor_availability_topic, binary_availability_topic):
+
+def process_poll(
+    client,
+    ups_data,
+    sensor_lookup,
+    switch_lookup,
+    last_values,
+    sensor_availability_topic,
+    binary_availability_topic,
+):
     """Process a single poll result — publish state changes and prune stale sensors."""
     if not ups_data:
         log_warning("UPS not reachable — marking sensors offline")
@@ -790,18 +848,31 @@ def process_poll(client, ups_data, sensor_lookup, switch_lookup, last_values,
         log_debug("Poll complete — no changes")
 
 
-def poll_loop(client, ups_name, sensor_lookup, switch_lookup, last_values,
-              sensor_availability_topic, binary_availability_topic, poll_interval,
-              upsc_path=DEFAULT_UPSC_PATH):
+def poll_loop(
+    client,
+    ups_name,
+    sensor_lookup,
+    switch_lookup,
+    last_values,
+    sensor_availability_topic,
+    binary_availability_topic,
+    poll_interval,
+    upsc_path=DEFAULT_UPSC_PATH,
+):
     """Main polling loop — reads UPS data and processes each result."""
     while True:
         try:
             ups_data = read_ups(ups_name, upsc_path)
             process_poll(
-                client, ups_data, sensor_lookup, switch_lookup, last_values,
-                sensor_availability_topic, binary_availability_topic
+                client,
+                ups_data,
+                sensor_lookup,
+                switch_lookup,
+                last_values,
+                sensor_availability_topic,
+                binary_availability_topic,
             )
-        except Exception as e:
+        except Exception as e:  # noqa: BLE001 - main loop, one bad poll must not kill the daemon
             log_error(f"Unexpected error in polling loop: {e}")
 
         time.sleep(poll_interval)
@@ -811,20 +882,21 @@ def poll_loop(client, ups_name, sensor_lookup, switch_lookup, last_values,
 # Main
 # ---------------------------------------------------------------------------
 
+
 def main():
     log_info(f"Starting version {__version__}")
     config = load_config()
 
     mqtt_conf = config["mqtt"]
-    ups_conf  = config["ups"]
+    ups_conf = config["ups"]
 
-    base_topic      = mqtt_conf.get("base_topic", DEFAULT_BASE_TOPIC)
-    poll_interval   = int(ups_conf.get("poll_interval", DEFAULT_POLL_INTERVAL))
-    max_attempts    = int(ups_conf.get("startup_max_attempts", DEFAULT_MAX_ATTEMPTS))
-    retry_delay     = int(ups_conf.get("startup_retry_delay", DEFAULT_RETRY_DELAY))
-    settle_seconds  = float(ups_conf.get("settle_seconds", DEFAULT_SETTLE_SECONDS))
-    upsc_path       = ups_conf.get("upsc_path", DEFAULT_UPSC_PATH)
-    upscmd_path     = ups_conf.get("upscmd_path", DEFAULT_UPSCMD_PATH)
+    base_topic = mqtt_conf.get("base_topic", DEFAULT_BASE_TOPIC)
+    poll_interval = int(ups_conf.get("poll_interval", DEFAULT_POLL_INTERVAL))
+    max_attempts = int(ups_conf.get("startup_max_attempts", DEFAULT_MAX_ATTEMPTS))
+    retry_delay = int(ups_conf.get("startup_retry_delay", DEFAULT_RETRY_DELAY))
+    settle_seconds = float(ups_conf.get("settle_seconds", DEFAULT_SETTLE_SECONDS))
+    upsc_path = ups_conf.get("upsc_path", DEFAULT_UPSC_PATH)
+    upscmd_path = ups_conf.get("upscmd_path", DEFAULT_UPSCMD_PATH)
 
     ups_slug = sanitize_slug(ups_conf["friendly_name"])
 
@@ -846,7 +918,9 @@ def main():
         client, config["sensors"], device_info, base_topic, sensor_availability_topic
     )
 
-    register_reload_handler(client, base_topic, device_info, sensor_availability_topic, sensor_lookup)
+    register_reload_handler(
+        client, base_topic, device_info, sensor_availability_topic, sensor_lookup
+    )
 
     commands_conf = config.get("commands")
     switches_conf = config.get("switches")
@@ -865,18 +939,30 @@ def main():
 
     if switches_conf:
         switch_command_lookup, switch_state_lookup = publish_switch_discovery_and_build_lookups(
-            client, switches_conf, device_info, base_topic, sensor_availability_topic
+            client,
+            switches_conf,
+            device_info,
+            base_topic,
+            sensor_availability_topic,
         )
 
     last_values = load_last_values()
 
     if command_lookup or switch_command_lookup:
         client.on_message = make_on_message(
-            ups_conf["name"], command_lookup, switch_command_lookup,
-            ups_conf["upscmd_username"], ups_conf["upscmd_password"],
-            sensor_lookup, switch_state_lookup, last_values,
-            sensor_availability_topic, binary_availability_topic,
-            settle_seconds, upsc_path, upscmd_path,
+            ups_conf["name"],
+            command_lookup,
+            switch_command_lookup,
+            ups_conf["upscmd_username"],
+            ups_conf["upscmd_password"],
+            sensor_lookup,
+            switch_state_lookup,
+            last_values,
+            sensor_availability_topic,
+            binary_availability_topic,
+            settle_seconds,
+            upsc_path,
+            upscmd_path,
         )
         for topic in (*command_lookup, *switch_command_lookup):
             client.subscribe(topic)
@@ -886,8 +972,15 @@ def main():
         )
 
     poll_loop(
-        client, ups_conf["name"], sensor_lookup, switch_state_lookup, last_values,
-        sensor_availability_topic, binary_availability_topic, poll_interval, upsc_path
+        client,
+        ups_conf["name"],
+        sensor_lookup,
+        switch_state_lookup,
+        last_values,
+        sensor_availability_topic,
+        binary_availability_topic,
+        poll_interval,
+        upsc_path,
     )
 
 
