@@ -1,5 +1,12 @@
 # Changelog
 
+## [1.10.1](https://github.com/zackwag/nut2mqtt/compare/v1.10.0...v1.10.1) (2026-09-17)
+
+
+### Bug Fixes
+
+* **ci:** use RELEASE_PLEASE_TOKEN so releases trigger downstream workflows ([#31](https://github.com/zackwag/nut2mqtt/issues/31)) ([92a146d](https://github.com/zackwag/nut2mqtt/commit/92a146d57611930dcabac1eaf0527e8957d985fd))
+
 ## [1.10.0](https://github.com/zackwag/nut2mqtt/compare/v1.9.0...v1.10.0) (2026-09-17)
 
 
