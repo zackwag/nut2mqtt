@@ -29,6 +29,8 @@ DEFAULT_BASE_TOPIC    = "nut2mqtt"
 DEFAULT_POLL_INTERVAL = 30
 DEFAULT_MAX_ATTEMPTS  = 5
 DEFAULT_RETRY_DELAY   = 2
+DEFAULT_UPSC_PATH     = "upsc"
+DEFAULT_UPSCMD_PATH   = "upscmd"
 
 # After a switch runs its on/off instant command, wait this long before
 # re-reading the UPS so the driver has polled the new status back.
@@ -193,10 +195,10 @@ def save_device_info_cache(cache):
 # UPS
 # ---------------------------------------------------------------------------
 
-def read_ups(ups_name):
+def read_ups(ups_name, upsc_path=DEFAULT_UPSC_PATH):
     """Call `upsc` to get UPS status and return as dict of key/value pairs."""
     try:
-        result = subprocess.run(["upsc", ups_name], capture_output=True, text=True)
+        result = subprocess.run([upsc_path, ups_name], capture_output=True, text=True)
         if result.returncode != 0:
             return {}
         data = {}
@@ -210,11 +212,11 @@ def read_ups(ups_name):
         return {}
 
 
-def run_upscmd(ups_name, command, username, password):
+def run_upscmd(ups_name, command, username, password, upscmd_path=DEFAULT_UPSCMD_PATH):
     """Execute a NUT instant command via `upscmd`. Returns True on success."""
     try:
         result = subprocess.run(
-            ["upscmd", "-u", username, "-p", password, ups_name, command],
+            [upscmd_path, "-u", username, "-p", password, ups_name, command],
             capture_output=True, text=True
         )
         if result.returncode != 0:
@@ -227,10 +229,10 @@ def run_upscmd(ups_name, command, username, password):
         return False
 
 
-def log_available_upscmds(ups_name):
+def log_available_upscmds(ups_name, upscmd_path=DEFAULT_UPSCMD_PATH):
     """Run `upscmd -l` and log the instant commands the UPS/driver supports."""
     try:
-        result = subprocess.run(["upscmd", "-l", ups_name], capture_output=True, text=True)
+        result = subprocess.run([upscmd_path, "-l", ups_name], capture_output=True, text=True)
         if result.returncode != 0:
             log_warning(f"Could not list UPS instant commands: {result.stderr.strip()}")
             return
@@ -249,10 +251,10 @@ def first_value(data, *keys, default=None):
     return default
 
 
-def read_ups_with_retry(ups_name, max_attempts, retry_delay):
+def read_ups_with_retry(ups_name, max_attempts, retry_delay, upsc_path=DEFAULT_UPSC_PATH):
     """Attempt to read UPS data, retrying up to max_attempts times."""
     for attempt in range(1, max_attempts + 1):
-        ups_data = read_ups(ups_name)
+        ups_data = read_ups(ups_name, upsc_path)
         if ups_data:
             return ups_data
         log_warning(f"UPS not reachable, retrying {attempt}/{max_attempts}...")
@@ -284,7 +286,8 @@ def setup_device_info(ups_conf, max_attempts, retry_delay):
     yet (common for a poll or two after a restart).
     """
     ups_id = sanitize_slug(ups_conf["name"])
-    ups_data = read_ups_with_retry(ups_conf["name"], max_attempts, retry_delay)
+    upsc_path = ups_conf.get("upsc_path", DEFAULT_UPSC_PATH)
+    ups_data = read_ups_with_retry(ups_conf["name"], max_attempts, retry_delay, upsc_path)
 
     cache = load_device_info_cache()
     cached = cache.get(ups_id, {})
@@ -297,7 +300,7 @@ def setup_device_info(ups_conf, max_attempts, retry_delay):
             if identity["manufacturer"] or identity["model"]:
                 break
             time.sleep(retry_delay)
-            ups_data = read_ups(ups_conf["name"]) or ups_data
+            ups_data = read_ups(ups_conf["name"], upsc_path) or ups_data
 
     fresh = _identity_from_ups_data(ups_data)
 
@@ -680,7 +683,8 @@ def publish_switch_discovery_and_build_lookups(client, switches, device_info, ba
 def make_on_message(ups_name, command_lookup, switch_lookup, username, password,
                     sensor_lookup, switch_state_lookup, last_values,
                     sensor_availability_topic, binary_availability_topic,
-                    settle_seconds):
+                    settle_seconds, upsc_path=DEFAULT_UPSC_PATH,
+                    upscmd_path=DEFAULT_UPSCMD_PATH):
     """
     Build an MQTT on_message handler for button command topics and switch
     command topics.
@@ -690,7 +694,7 @@ def make_on_message(ups_name, command_lookup, switch_lookup, username, password,
     """
     def _poll_now(client):
         time.sleep(settle_seconds)
-        ups_data = read_ups(ups_name)
+        ups_data = read_ups(ups_name, upsc_path)
         process_poll(client, ups_data, sensor_lookup, switch_state_lookup,
                      last_values, sensor_availability_topic,
                      binary_availability_topic)
@@ -699,7 +703,7 @@ def make_on_message(ups_name, command_lookup, switch_lookup, username, password,
         command_key = command_lookup.get(msg.topic)
         if command_key is not None:
             log_info(f"Received command '{command_key}' via MQTT")
-            if run_upscmd(ups_name, command_key, username, password):
+            if run_upscmd(ups_name, command_key, username, password, upscmd_path):
                 _poll_now(client)
             return
 
@@ -716,7 +720,7 @@ def make_on_message(ups_name, command_lookup, switch_lookup, username, password,
             return
 
         log_info(f"Received switch '{payload}' -> '{nut_command}' via MQTT")
-        if run_upscmd(ups_name, nut_command, username, password):
+        if run_upscmd(ups_name, nut_command, username, password, upscmd_path):
             _poll_now(client)
     return on_message
 
@@ -787,11 +791,12 @@ def process_poll(client, ups_data, sensor_lookup, switch_lookup, last_values,
 
 
 def poll_loop(client, ups_name, sensor_lookup, switch_lookup, last_values,
-              sensor_availability_topic, binary_availability_topic, poll_interval):
+              sensor_availability_topic, binary_availability_topic, poll_interval,
+              upsc_path=DEFAULT_UPSC_PATH):
     """Main polling loop — reads UPS data and processes each result."""
     while True:
         try:
-            ups_data = read_ups(ups_name)
+            ups_data = read_ups(ups_name, upsc_path)
             process_poll(
                 client, ups_data, sensor_lookup, switch_lookup, last_values,
                 sensor_availability_topic, binary_availability_topic
@@ -818,6 +823,8 @@ def main():
     max_attempts    = int(ups_conf.get("startup_max_attempts", DEFAULT_MAX_ATTEMPTS))
     retry_delay     = int(ups_conf.get("startup_retry_delay", DEFAULT_RETRY_DELAY))
     settle_seconds  = float(ups_conf.get("settle_seconds", DEFAULT_SETTLE_SECONDS))
+    upsc_path       = ups_conf.get("upsc_path", DEFAULT_UPSC_PATH)
+    upscmd_path     = ups_conf.get("upscmd_path", DEFAULT_UPSCMD_PATH)
 
     ups_slug = sanitize_slug(ups_conf["friendly_name"])
 
@@ -849,7 +856,7 @@ def main():
     switch_state_lookup = {}
 
     if commands_conf or switches_conf:
-        log_available_upscmds(ups_conf["name"])
+        log_available_upscmds(ups_conf["name"], upscmd_path)
 
     if commands_conf:
         command_lookup = publish_command_discovery_and_build_lookup(
@@ -869,7 +876,7 @@ def main():
             ups_conf["upscmd_username"], ups_conf["upscmd_password"],
             sensor_lookup, switch_state_lookup, last_values,
             sensor_availability_topic, binary_availability_topic,
-            settle_seconds,
+            settle_seconds, upsc_path, upscmd_path,
         )
         for topic in (*command_lookup, *switch_command_lookup):
             client.subscribe(topic)
@@ -880,7 +887,7 @@ def main():
 
     poll_loop(
         client, ups_conf["name"], sensor_lookup, switch_state_lookup, last_values,
-        sensor_availability_topic, binary_availability_topic, poll_interval
+        sensor_availability_topic, binary_availability_topic, poll_interval, upsc_path
     )
 
 
