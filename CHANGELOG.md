@@ -1,5 +1,12 @@
 # Changelog
 
+## [1.11.1](https://github.com/zackwag/nut2mqtt/compare/v1.11.0...v1.11.1) (2026-09-29)
+
+
+### Documentation
+
+* add CLAUDE.md and fix minimum Python version in README ([#38](https://github.com/zackwag/nut2mqtt/issues/38)) ([e5b7dd9](https://github.com/zackwag/nut2mqtt/commit/e5b7dd957af3a79dd9d9c08c35de3617939ff39f))
+
 ## [1.11.0](https://github.com/zackwag/nut2mqtt/compare/v1.10.1...v1.11.0) (2026-09-17)
 
 
