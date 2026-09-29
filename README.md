@@ -54,7 +54,7 @@ This makes the system resilient to:
 - `upsc` accessible on the system path
 - MQTT broker (e.g. [Mosquitto](https://mosquitto.org/))
 - Home Assistant with MQTT integration enabled
-- Python 3.8+
+- Python 3.10+
 
 ---
 
