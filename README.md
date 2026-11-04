@@ -134,6 +134,7 @@ Each sensor entry supports the following fields:
 | `unit` | ❌ | Unit of measurement (e.g. `%`, `V`, `s`) |
 | `icon` | ❌ | MDI icon (e.g. `mdi:battery`) |
 | `device_class` | ❌ | Home Assistant device class (e.g. `battery`, `voltage`) |
+| `state_class` | ❌ | Home Assistant state class (`measurement`, `total`, `total_increasing`). Required for long-term statistics; without it numeric sensors are not recorded in statistics |
 | `entity_category` | ❌ | Set to `diagnostic` to move sensor to Diagnostics section |
 
 ### `commands`

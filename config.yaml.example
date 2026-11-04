@@ -27,6 +27,7 @@ sensors:
     icon: "mdi:battery"
     friendly_name: "Battery Charge"
     device_class: "battery"
+    state_class: "measurement"
 
   - key: "battery.charge.low"
     unit: "%"
