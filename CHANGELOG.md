@@ -1,5 +1,12 @@
 # Changelog
 
+## [1.11.2](https://github.com/zackwag/nut2mqtt/compare/v1.11.1...v1.11.2) (2026-11-04)
+
+
+### Bug Fixes
+
+* pass state_class through sensor discovery ([#41](https://github.com/zackwag/nut2mqtt/issues/41)) ([a08455b](https://github.com/zackwag/nut2mqtt/commit/a08455b6075e89c5e2f618d8af5a5a8cc9039408))
+
 ## [1.11.1](https://github.com/zackwag/nut2mqtt/compare/v1.11.0...v1.11.1) (2026-09-29)
 
 
