@@ -496,7 +496,7 @@ def build_sensor_discovery(sensor, device_info, base_topic, availability_topic):
         "availability_topic": availability_topic,
     }
 
-    for field in ("unit", "icon", "device_class", "entity_category"):
+    for field in ("unit", "icon", "device_class", "state_class", "entity_category"):
         if field in sensor:
             ha_field = "unit_of_measurement" if field == "unit" else field
             payload[ha_field] = sensor[field]

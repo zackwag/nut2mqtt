@@ -306,12 +306,23 @@ class TestBuildSensorDiscovery:
         payload, _ = build_sensor_discovery(sensor, DEVICE_INFO, BASE_TOPIC, AVAIL_TOPIC)
         assert payload["entity_category"] == "diagnostic"
 
+    def test_state_class(self):
+        sensor = {
+            "key": "ups.load",
+            "friendly_name": "Load",
+            "unit": "%",
+            "state_class": "measurement",
+        }
+        payload, _ = build_sensor_discovery(sensor, DEVICE_INFO, BASE_TOPIC, AVAIL_TOPIC)
+        assert payload["state_class"] == "measurement"
+
     def test_no_optional_fields(self):
         sensor = {"key": "ups.status", "friendly_name": "Status"}
         payload, _ = build_sensor_discovery(sensor, DEVICE_INFO, BASE_TOPIC, AVAIL_TOPIC)
         assert "unit_of_measurement" not in payload
         assert "icon" not in payload
         assert "device_class" not in payload
+        assert "state_class" not in payload
 
     def test_strips_device_name_prefix(self):
         sensor = {"key": "ups.load", "friendly_name": "My UPS Load"}
