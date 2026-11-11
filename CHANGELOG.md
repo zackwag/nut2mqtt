@@ -1,5 +1,12 @@
 # Changelog
 
+## [1.11.4](https://github.com/zackwag/nut2mqtt/compare/v1.11.3...v1.11.4) (2026-11-11)
+
+
+### Miscellaneous Chores
+
+* fix dependabot commit-message prefixes for conventional commits ([#46](https://github.com/zackwag/nut2mqtt/issues/46)) ([6186ed6](https://github.com/zackwag/nut2mqtt/commit/6186ed6391eeea6cad60588869e2a02110244a31))
+
 ## [1.11.3](https://github.com/zackwag/nut2mqtt/compare/v1.11.2...v1.11.3) (2026-11-11)
 
 
