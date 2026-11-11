@@ -1,4 +1,4 @@
-FROM python:3.14-slim
+FROM python:3.15-slim
 
 # NUT server (upsd) + USB/serial drivers + client tools (upsc/upscmd),
 # plus lsusb for debugging USB passthrough.
