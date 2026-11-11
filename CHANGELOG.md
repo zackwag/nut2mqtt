@@ -1,5 +1,13 @@
 # Changelog
 
+## [1.11.3](https://github.com/zackwag/nut2mqtt/compare/v1.11.2...v1.11.3) (2026-11-11)
+
+
+### Miscellaneous Chores
+
+* **deps:** bump python from 3.14-slim to 3.15-slim ([#43](https://github.com/zackwag/nut2mqtt/issues/43)) ([4e2e382](https://github.com/zackwag/nut2mqtt/commit/4e2e382f9467214971d1dc31e51992190ffc29b4))
+* **deps:** update paho-mqtt requirement from &gt;=2.1.0 to &gt;=2.2.0 ([#44](https://github.com/zackwag/nut2mqtt/issues/44)) ([368def0](https://github.com/zackwag/nut2mqtt/commit/368def0e3e8b0d1685827ddfb208717eb3d3257e))
+
 ## [1.11.2](https://github.com/zackwag/nut2mqtt/compare/v1.11.1...v1.11.2) (2026-11-04)
 
 

@@ -10,7 +10,7 @@ import paho.mqtt.client as mqtt
 import yaml
 
 # App Information
-__version__ = "1.11.2"  # x-release-please-version
+__version__ = "1.11.3"  # x-release-please-version
 APP_NAME = "nut2mqtt"
 
 # Filenames
