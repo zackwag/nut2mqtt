@@ -1,5 +1,12 @@
 # Changelog
 
+## [1.11.5](https://github.com/zackwag/nut2mqtt/compare/v1.11.4...v1.11.5) (2026-11-25)
+
+
+### Miscellaneous Chores
+
+* **deps:** update pyyaml requirement from &gt;=6.0.3 to &gt;=6.0.4 ([#48](https://github.com/zackwag/nut2mqtt/issues/48)) ([3be5a78](https://github.com/zackwag/nut2mqtt/commit/3be5a78f860fc598f200b6f1700475478037e1b7))
+
 ## [1.11.4](https://github.com/zackwag/nut2mqtt/compare/v1.11.3...v1.11.4) (2026-11-11)
 
 
